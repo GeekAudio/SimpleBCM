@@ -10,7 +10,7 @@
 # SimpleBCM
 
 ![Version](https://img.shields.io/badge/version-1.2.1-2563eb)
-![macOS](https://img.shields.io/badge/macOS-Sonoma%2014%20%7C%20Sequoia%2015%20%7C%20Tahoe%2026-111827)
+![macOS](https://img.shields.io/badge/macOS-Sonoma%2014%20%7C%20Sequoia%2015%20%7C%20Tahoe%2026%20%7C%20GoldenGate%2027-111827)
 ![Architecture](https://img.shields.io/badge/arch-x86__64-6b7280)
 ![OpenCore](https://img.shields.io/badge/boot-OpenCore-16a34a)
 
@@ -18,7 +18,7 @@
 
 </div>
 
-SimpleBCM 通过 OpenCore 注入恢复 macOS Sonoma、Sequoia 和 Tahoe 的 Broadcom Wi-Fi 支持。同一个 Kext 使用各系统原生 IOSkywalkFamily，无需修改系统卷。
+SimpleBCM 通过 OpenCore 注入恢复 macOS Sonoma、Sequoia、Tahoe 和 Golden Gate 的 Broadcom Wi-Fi 支持。同一个 Kext 使用各系统原生 IOSkywalkFamily，无需修改系统卷。
 
 ## 安装
 
@@ -28,15 +28,15 @@ SimpleBCM 通过 OpenCore 注入恢复 macOS Sonoma、Sequoia 和 Tahoe 的 Broa
 
 **删除或禁用已有的 `com.apple.iokit.IOSkywalkFamily` 的 `Kernel → Block` 规则，保持系统原生 IOSkywalkFamily 和 IO80211Family 启用。**
 
-支持 macOS Sonoma 14、Sequoia 15 和 Tahoe 26，不限制系统小版本。使用 `MinKernel=23.0.0`、`MaxKernel=25.99.99`。
+支持 macOS Sonoma 14、Sequoia 15、Tahoe 26 和 GoldenGate 27，不限制系统小版本。使用 `MinKernel=23.0.0`、`MaxKernel=27.99.99`。
 
 需要 AirportBrcmFixup 时，按 `Extra/config.AirportBrcmFixup.fragment.plist` 添加 Lilu、AirportBrcmFixup 和 AirPortBrcmNIC_Injector。
 
 ## 启动参数
 
-`sbcmdelay=X`：服务启动后延迟 `X` 毫秒加载内嵌驱动，如 `sbcmdelay=10000` 为 10 秒。支持三套系统，不设置或设为 `0` 时不延迟。载荷准备和注册仍在早期完成。
+`sbcmdelay=X`：服务启动后延迟 `X` 毫秒加载内嵌驱动，如 `sbcmdelay=10000` 为 10 秒。支持四套系统，不设置或设为 `0` 时不延迟。载荷准备和注册仍在早期完成。
 
-以下功能默认关闭，仅在 macOS Tahoe（Darwin 25）生效，可分别启用：
+以下功能默认关闭，仅在 macOS Tahoe（Darwin 25）及 GoldenGate（Darwin 27）生效，可分别启用：
 
 | 参数 | 功能 |
 | --- | --- |

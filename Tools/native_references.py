@@ -41,16 +41,26 @@ def load_reference(path):
     return reference
 
 
-def reference_paths():
+def reference_paths(only=None):
     source = os.environ.get('SIMPLEBCM_NATIVE_SOURCE', 'snapshot')
+    names = list(only or SYSTEMS)
     if source == 'snapshot':
-        return {name: DIRECTORY / (name + '.json') for name in SYSTEMS}
+        return {name: DIRECTORY / (name + '.json') for name in names}
     if source != 'system':
         raise ValueError('SIMPLEBCM_NATIVE_SOURCE must be snapshot or system')
     volumes = system_volumes()
-    if set(volumes) != set(SYSTEMS):
-        raise ValueError('All three reference system volumes are required for system mode')
-    return {name: volumes[name] / 'System/Library/KernelCollections/BootKernelExtensions.kc' for name in SYSTEMS}
+    if only is None and set(volumes) != set(SYSTEMS):
+        raise ValueError('All reference system volumes are required for system mode')
+    paths = {}
+    for name in names:
+        if name in volumes:
+            paths[name] = volumes[name] / 'System/Library/KernelCollections/BootKernelExtensions.kc'
+        elif only is None:
+            raise ValueError('Missing reference system volume: ' + name)
+        else:
+            # 显式指定系统时，其余系统回退到已提交的快照，供跨系统符号交集使用
+            paths[name] = DIRECTORY / (name + '.json')
+    return paths
 
 
 class ReferenceImage:
@@ -104,22 +114,34 @@ class ReferenceCollection:
         pass
 
 
-def export_references(binary):
+def export_references(binary, only=None):
     from embed import generate, OUTPUT
     from kernel_collection import KernelCollection
     from native_abi import NATIVE_CLASSES, table
     from native_payload import CLIENT_CLASSES, SkywalkPlan, prepare_native_guards
 
     os.environ['SIMPLEBCM_NATIVE_SOURCE'] = 'system'
-    generate()
-    manifest = json.loads((OUTPUT / 'manifest.json').read_text())
+    manifest_path = OUTPUT / 'manifest.json'
+    if only is None:
+        generate()
+    elif not manifest_path.is_file():
+        raise ValueError('Build the driver once before exporting a single system reference')
+    manifest = json.loads(manifest_path.read_text())
     required = set(manifest['nativeImports'])
     required.update(subprocess.check_output(['nm', '-u', '-j', str(binary)], text=True).splitlines())
+    # 始终对全部系统建模：原生符号交集决定 vtable 守卫，只导出 only 指定的系统
     plans = [SkywalkPlan(name) for name in SYSTEMS]
     prepare_native_guards(plans)
     DIRECTORY.mkdir(parents=True, exist_ok=True)
     hashes = {}
+    index_path = DIRECTORY / 'manifest.json'
+    if index_path.is_file():
+        hashes = dict(json.loads(index_path.read_text()).get('files', {}))
     for plan in plans:
+        if only and plan.system not in only:
+            plan.wireless.close()
+            plan.model.close()
+            continue
         collection = KernelCollection(plan.native.path)
         images = {}
         for identifier, image, classes in (
@@ -219,12 +241,14 @@ def main():
     parser = argparse.ArgumentParser()
     parser.add_argument('action', choices=('export', 'verify'))
     parser.add_argument('--binary', type=Path, default=ROOT / 'build/DerivedData/Build/Products/Release/SimpleBCM.kext/Contents/MacOS/SimpleBCM')
+    parser.add_argument('--system', choices=list(SYSTEMS), action='append',
+                        help='仅导出/校验指定系统，可重复；省略时处理全部')
     args = parser.parse_args()
     if args.action == 'export':
-        export_references(args.binary)
-    for name in SYSTEMS:
+        export_references(args.binary, args.system)
+    for name in (args.system or SYSTEMS):
         load_reference(DIRECTORY / (name + '.json'))
-    print('Native ABI references verified: ' + ', '.join(SYSTEMS))
+    print('Native ABI references verified: ' + ', '.join(args.system or SYSTEMS))
 
 
 if __name__ == '__main__':

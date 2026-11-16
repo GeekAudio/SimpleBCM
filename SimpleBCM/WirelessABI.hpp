@@ -77,9 +77,15 @@ constexpr UserABI SequoiaABI {24, "Sequoia", 0x8D8, 19, 0x384, 0x1CC, 0,
 constexpr UserABI TahoeABI {25, "Tahoe", 0x8E0, 21, 0x38C, 0x1D4, 0x234,
     NativeScanMultipleSize, NativeRoamProfileSize, NativeDriverAvailableSize, 9,
     AirPortBackend::Tahoe, AssociateLayout::Extended, JoinEventPolicy::Tahoe};
+// Golden Gate 的 IO80211 用户态派发表与 Tahoe 逐项相同（9 个 selector），
+// 类大小与虚表槽数也未变，因此沿用同一套编解码常量。
+constexpr UserABI GoldenGateABI {27, "GoldenGate", 0x8E0, 21, 0x38C, 0x1D4, 0x234,
+    NativeScanMultipleSize, NativeRoamProfileSize, NativeDriverAvailableSize, 9,
+    AirPortBackend::Tahoe, AssociateLayout::Extended, JoinEventPolicy::Tahoe};
 
 inline const UserABI *userABIForKernel(uint32_t kernel) {
-    return kernel == 23 ? &SonomaABI : kernel == 24 ? &SequoiaABI : kernel == 25 ? &TahoeABI : nullptr;
+    return kernel == 23 ? &SonomaABI : kernel == 24 ? &SequoiaABI :
+           kernel == 25 ? &TahoeABI : kernel == 27 ? &GoldenGateABI : nullptr;
 }
 
 inline size_t eventPayloadSize(uint32_t event, size_t length, const UserABI &abi) {

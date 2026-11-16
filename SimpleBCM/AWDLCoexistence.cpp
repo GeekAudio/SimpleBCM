@@ -48,7 +48,7 @@ static void selectChannels(void *manager) {
 }
 
 bool AWDLCoexistence::prepare(LinkedImage &image, bool enabled) {
-    if (getKernelVersion() != 25) {
+    if (getKernelVersion() < 25) {
         status = "NotApplicable";
         return true;
     }

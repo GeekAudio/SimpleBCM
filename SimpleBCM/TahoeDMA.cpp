@@ -220,7 +220,7 @@ extern "C" void *bcmTahoeRxCopy(void *di, void *packet, uint32_t index,
 }
 
 bool TahoeDMA::prepare(LinkedImage &image, bool enabled) {
-    if (getKernelVersion() != 25) {
+    if (getKernelVersion() < 25) {
         status = "NotRequired";
         return true;
     }

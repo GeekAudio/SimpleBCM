@@ -345,7 +345,7 @@ class SkywalkPlan:
             'nativeSlotCount': len(self.model.new_tables['IOSkywalkEthernetInterface']),
             'ethernetLinkSymbol': self.link_symbol,
             'ethernetLinkSlot': self.link_slot,
-            'airPortPayloadIndex': 2 if self.profile['kernel'] == 25 else 1,
+            'airPortPayloadIndex': 2 if self.profile['kernel'] >= 25 else 1,
             'classNamespace': self.namespace,
             'wirelessControllerIdentity': 'AirPortDriver',
             'userClientStrategy': 'native-class-with-delegated-control',
@@ -393,6 +393,13 @@ def prepare_native_guards(plans):
             '__ZNK25IOSkywalkPacketBufferPool13taggedReleaseEPKv',
             '__ZN25IOSkywalkNetworkInterface13willTerminateEP9IOServicej',
             '__ZN25IOSkywalkNetworkInterface17setRxFlowSteeringEjP31ifnet_traffic_descriptor_commonj',
+            # Golden Gate 在 IOSkywalkNetworkInterface 里新增的 IPsec offload 虚方法，
+            # 只有该系统的原生表包含；旧载荷不会调用，无需转发目标。
+            '__ZN25IOSkywalkNetworkInterface17ipsecOffloadSAAddEP16ipsec_offload_saPy',
+            '__ZN25IOSkywalkNetworkInterface20ipsecOffloadSADeleteEy',
+            '__ZN25IOSkywalkNetworkInterface24ipsecOffloadSAAdvanceESNEyy',
+            '__ZN25IOSkywalkNetworkInterface21ipsecOffloadPolicyAddEP20ipsec_offload_policyPy',
+            '__ZN25IOSkywalkNetworkInterface24ipsecOffloadPolicyDeleteEy',
         }
         if any(method not in allowed for _, _, method in plan.unchecked_overrides):
             raise ValueError('Unrecognized native vtable override')
@@ -449,7 +456,7 @@ def emit_system_profiles(plans, native_index):
             plan.emit_rows(lines, 'NativeCodeReference', refs, [(o, native_index[m]) for o, m in plan.link_references])
             pattern = '{' + f'{data},{mask},{len(plan.link_bytes)},{refs},{len(plan.link_references)}' + '}'
         fields = [str(profile['kernel']), json.dumps(plan.system), str(profile['ethernetSize']), str(profile['poolSize']),
-                  str(profile['ethernetSlots']), str(2 if profile['kernel'] == 25 else 1),
+                  str(profile['ethernetSlots']), str(2 if profile['kernel'] >= 25 else 1),
                   str(plan.link_slot) + 'U', pattern, guards, str(len(plan.vtable_guards)),
                   sizes, str(len(plan.class_guards)), name]
         rows.append('{' + ','.join(fields) + '}')

@@ -8,7 +8,7 @@
 
 # 原生 Skywalk 适配
 
-SimpleBCM 在启动时按 Darwin 主版本选择配置，不以系统小版本、构建号或 UUID 限制加载。加载前检查实际依赖的原生类大小和虚方法布局。包内包含 Legacy、原始 AirPort 和 Tahoe AirPort 三个载荷，每次只映射并注册 Legacy 与当前系统的 AirPort。旧 IOSkywalkFamily 仅用于构建期 ABI 对照，不嵌入驱动。
+SimpleBCM 在启动时按 Darwin 主版本选择配置（23 / 24 / 25 / 27），不以系统小版本、构建号或 UUID 限制加载。加载前检查实际依赖的原生类大小和虚方法布局。包内包含 Legacy、原始 AirPort 和 Tahoe AirPort 三个载荷，每次只映射并注册 Legacy 与当前系统的 AirPort。旧 IOSkywalkFamily 仅用于构建期 ABI 对照，不嵌入驱动。
 
 ## 构建参考
 
@@ -17,20 +17,23 @@ SimpleBCM 在启动时按 Darwin 主版本选择配置，不以系统小版本�
 | Sonoma 14.8.8 | 23J620 | 9F5908B5-BA4B-37E3-AC31-62E1D45F1589 | EC4BA672-6E08-3AD2-B882-01690A960FF4 |
 | Sequoia 15.8 | 24H23 | 70DFAA8E-E369-3417-B6FD-B19FB6D5D49B | 13D3592A-A6BE-35E7-984C-0ACD90A76356 |
 | Tahoe 26.7.2 | 25G332 | A6EDB8DB-175B-3A49-8919-5769FCDB6BED | 4C2B4969-2B92-3646-9512-C1769BE0F9A4 |
+| Golden Gate 27.2 | 26B123 | BAC5AA66-9C9C-356A-AC86-A25F04A07E27 | FCFF2E2C-C353-3ED2-90CA-A7776A68E892 |
 
 以上版本和 UUID 用于固定构建参考，不是运行时白名单。`Resources/NativeABI` 保存从这些系统提取的符号、虚表及必要代码片段，构建时校验 SHA-256 后读取。配置源为 `Tools/system_profiles.py`，生成器为 `Tools/native_abi.py`、`Tools/native_payload.py` 和 `Tools/embed.py`。运行时通过元类与符号地址核对 15 个原生类和接口、包池、用户客户端的虚表布局。
 
 ## 对象与调用转接
 
-| 原生布局 | Sonoma | Sequoia | Tahoe |
-| --- | ---: | ---: | ---: |
-| IOSkywalkNetworkInterface 大小 | 208 | 208 | 224 |
-| IOSkywalkEthernetInterface 大小 | 272 | 272 | 288 |
-| Ethernet 扩展指针偏移 | 264 | 264 | 280 |
-| Ethernet 虚表槽数 | 353 | 352 | 353 |
-| IOSkywalkPacketBufferPool 大小 | 184 | 184 | 192 |
-| IOSkywalkNetworkBSDClient 大小 | 328 | 328 | 336 |
-| IO80211API/AsyncEventUserClient 大小 | 224 | 224 | 224 |
+| 原生布局 | Sonoma | Sequoia | Tahoe | Golden Gate |
+| --- | ---: | ---: | ---: | ---: |
+| IOSkywalkNetworkInterface 大小 | 208 | 208 | 224 | 224 |
+| IOSkywalkEthernetInterface 大小 | 272 | 272 | 288 | 288 |
+| Ethernet 扩展指针偏移 | 264 | 264 | 280 | 280 |
+| Ethernet 虚表槽数 | 353 | 352 | 353 | 358 |
+| IOSkywalkPacketBufferPool 大小 | 184 | 184 | 192 | 192 |
+| IOSkywalkNetworkBSDClient 大小 | 328 | 328 | 336 | 336 |
+| IO80211API/AsyncEventUserClient 大小 | 224 | 224 | 224 | 224 |
+
+Golden Gate 相对 Tahoe 的唯一布局变化是 `IOSkywalkNetworkInterface` 新增 5 个 IPsec offload 虚方法（`ipsecOffloadSAAdd`、`ipsecOffloadSADelete`、`ipsecOffloadSAAdvance`、`ipsecOffloadPolicyAdd`、`ipsecOffloadPolicyDelete`），插在 Tahoe 的保留槽之前，导致其后所有槽位整体后移 5。类大小、包池布局、用户客户端派发表（9 个 selector）与 Tahoe 逐项相同，旧载荷不会调用这些新方法，因此不需要转发目标。
 
 Legacy 在 `this+0x118` 保存控制器，而 Tahoe 的 Ethernet 父类在同一位置保存扩展指针。`NativeSkywalk.cpp` 通过 272 字节的 BCMLegacyInterface 保留旧布局，另行构造原生 Ethernet 对象。原生派生对象统一分配 296 字节，在偏移 288 保存上下文；方法转发时切换接收对象，回调期间临时持有旧对象引用。
 
@@ -42,7 +45,7 @@ Legacy 在 `this+0x118` 保存控制器，而 Tahoe 的 Ethernet 父类在同一
 
 Legacy 与原生 IO80211Family 的冲突元类在载荷 CString 中重命名，保留原字符串槽位大小及 C++ 符号解析。旧控制器注册为 AirPortDriver，使 SystemConfiguration 将其识别为无线控制器。
 
-`NativeUserClient.cpp` 使用原生 API/AsyncEvent 用户客户端的构造函数和元类，将实例方法转接到 BCM80211UserClient。系统进程仍取得原生客户端类型，权限检查沿用原控制实现。`WirelessABI.hpp` 处理三个系统的 selector、关联结构、扫描结果和事件格式差异。
+`NativeUserClient.cpp` 使用原生 API/AsyncEvent 用户客户端的构造函数和元类，将实例方法转接到 BCM80211UserClient。系统进程仍取得原生客户端类型，权限检查沿用原控制实现。`WirelessABI.hpp` 处理四个系统的 selector、关联结构、扫描结果和事件格式差异；Golden Gate 沿用 Tahoe 的编解码常量。
 
 ## 电源与载荷
 

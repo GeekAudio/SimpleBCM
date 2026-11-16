@@ -159,7 +159,7 @@ class Mach:
         return (a, self.read(a, e - a))
 
 def sky(ver):
-    return Mach(reference_paths()[ver], 'com.apple.iokit.IOSkywalkFamily')
+    return Mach(reference_paths([ver])[ver], 'com.apple.iokit.IOSkywalkFamily')
 
 def dem(names):
     s = list(names)
@@ -258,7 +258,7 @@ class NativeModel:
             raise ValueError('Reference system kernel does not match its profile')
         if self.native.uuid != self.profile['skywalk']:
             raise ValueError('Reference Skywalk UUID does not match its profile')
-        self.airport_source = 'BrcmTahoe' if self.profile['kernel'] == 25 else 'BrcmOriginal'
+        self.airport_source = 'BrcmTahoe' if self.profile['kernel'] >= 25 else 'BrcmOriginal'
         self.images = {'Legacy': Mach(PATHS['Legacy']), 'BrcmTahoe': Mach(PATHS[self.airport_source])}
         self.old_tables = {}
         self.new_tables = {}
@@ -380,13 +380,17 @@ def verify_model(model):
         checks.append(name)
     require(model.native.uuid == model.profile['skywalk'], model.system + ' native UUID')
     require(len(model.tables) == 18, '18 class tables decoded')
-    for cls, old_size, native_size in [('IOSkywalkInterface', 184, 176), ('IOSkywalkNetworkInterface', 208, 224 if model.profile['kernel'] == 25 else 208), ('IOSkywalkEthernetInterface', 272, model.profile['ethernetSize']), ('IOSkywalkPacketBufferPool', 184, model.profile['poolSize']), ('IOSkywalkPacket', 120, 112), ('IOSkywalkNetworkPacket', 128, 120)]:
+    for cls, old_size, native_size in [('IOSkywalkInterface', 184, 176), ('IOSkywalkNetworkInterface', 208, 224 if model.profile['kernel'] >= 25 else 208), ('IOSkywalkEthernetInterface', 272, model.profile['ethernetSize']), ('IOSkywalkPacketBufferPool', 184, model.profile['poolSize']), ('IOSkywalkPacket', 120, 112), ('IOSkywalkNetworkPacket', 128, 120)]:
         require(class_size(model.old, cls) == old_size and class_size(model.native, cls) == native_size, cls + ' class sizes')
     cls = 'IOSkywalkEthernetInterface'
     require(len(model.new_tables[cls]) == model.profile['ethernetSlots'], 'Native Ethernet vtable length')
-    if model.profile['kernel'] == 25:
+    if model.profile['kernel'] >= 25:
         require('initBSDInterfaceParameters' in model.old_tables[cls][2256 // 8] and 'registerNetworkInterfaceWithLogicalLink' in model.new_tables[cls][2256 // 8], 'Ethernet vtable collision at 0x8d0')
-        require('hwConfigNicProxyData' in model.old_tables[cls][2736 // 8] and '_RESERVEDIOSkywalkEthernetInterface0' in model.new_tables[cls][2736 // 8], 'Ethernet reserved-slot collision at 0xab0')
+        # Golden Gate 在 NetworkInterface 里插入 5 个 IPsec offload 虚方法，Ethernet 的保留槽整体后移
+        reserved = {25: 2736 // 8, 27: 2736 // 8 + 5}[model.profile['kernel']]
+        require('hwConfigNicProxyData' in model.old_tables[cls][2736 // 8] and
+                '_RESERVEDIOSkywalkEthernetInterface0' in model.new_tables[cls][reserved],
+                'Ethernet reserved-slot collision')
     old = model.images['Legacy']
     require(old.read(683934, 7) == bytes.fromhex('48898318010000'), 'Legacy controller pointer store at this+0x118')
     name = '__ZN26IOSkywalkEthernetInterface4initEP12OSDictionary'
@@ -395,7 +399,7 @@ def verify_model(model):
     require(model.native.read(address + 38, 7) == b'\x48\x89\x83' + struct.pack('<I', offset), f'Native expansion pointer store at this+{offset:#x}')
     refs = model.imports()
     require(refs['Legacy']['oldSkywalkImports'] == 113 and refs['BrcmTahoe']['oldSkywalkImports'] == 148, 'Skywalk dependency counts')
-    counts = {23: (1, 2), 24: (2, 3), 25: (2, 4)}[model.profile['kernel']]
+    counts = {23: (1, 2), 24: (2, 3), 25: (2, 4), 27: (2, 4)}[model.profile['kernel']]
     require((len(refs['Legacy']['missingInNative']), len(refs['BrcmTahoe']['missingInNative'])) == counts, 'Skywalk missing-entry counts')
     layouts = model.layouts()
     for label, cls, parent in LEGACY_CLASSES:

@@ -14,7 +14,7 @@ import re
 import xml.etree.ElementTree as ET
 
 from bootstrap import ROOT
-from build import VERSION, fragment, package_name
+from build import MAX_KERNEL, MIN_KERNEL, VERSION, fragment, package_name
 from system_profiles import SYSTEMS
 from native_references import DIRECTORY, load_reference
 
@@ -56,7 +56,7 @@ def main():
         assert config['Kernel']['Block'] == [], 'Native frameworks must remain enabled'
         for entry in config['Kernel']['Add']:
             assert entry['Enabled'] and entry['Arch'] == 'x86_64'
-            assert (entry['MinKernel'], entry['MaxKernel']) == ('23.0.0', '25.99.99')
+            assert (entry['MinKernel'], entry['MaxKernel']) == (MIN_KERNEL, MAX_KERNEL)
         assert plistlib.loads(plistlib.dumps(config)) == config
     for configuration in ('Debug', 'Release'):
         assert package_name(configuration) == f'SimpleBCM-v{VERSION}-{configuration.upper()}'

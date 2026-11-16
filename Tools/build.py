@@ -30,6 +30,9 @@ from native_references import reference_paths
 
 
 CONFIGURATIONS = ('Debug', 'Release')
+# 支持范围：Sonoma 14 (Darwin 23) 到 Golden Gate 27 (Darwin 27)
+MIN_KERNEL = '23.0.0'
+MAX_KERNEL = '27.99.99'
 
 
 def package_name(configuration, channel='rel', sha=None):
@@ -280,7 +283,7 @@ def fragment(optional=False):
             ('AirportBrcmFixup.kext/Contents/PlugIns/AirPortBrcmNIC_Injector.kext', '')]
     add = [dict(Arch='x86_64', BundlePath=path, Comment='SimpleBCM embedded stack' if exe == 'SimpleBCM' else 'User-supplied optional dependency',
                 Enabled=True, ExecutablePath='Contents/MacOS/' + exe if exe else '', PlistPath='Contents/Info.plist',
-                MinKernel='23.0.0', MaxKernel='25.99.99') for path, exe in entries]
+                MinKernel=MIN_KERNEL, MaxKernel=MAX_KERNEL) for path, exe in entries]
     return {'Kernel': {'Add': add, 'Block': []}}
 
 
@@ -445,7 +448,7 @@ def verify(configuration, references):
                              for name, target in zip(adapter['compatibilityImports'], adapter['compatibilityTargets'])}
             (temp / 'imports.bin').write_bytes(b''.join(struct.pack('<Q', current[name]) for name in manifest['nativeImports']) +
                                                b''.join(struct.pack('<Q', compatibility[name]) for name in adapter['compatibilityImports']))
-            labels = ['Legacy', 'AirPort' if profile['kernel'] == 25 else 'AirPortOriginal']
+            labels = ['Legacy', 'AirPort' if profile['kernel'] >= 25 else 'AirPortOriginal']
             for far in [False, True]:
                 output = subprocess.check_output([str(executable), str(temp / 'imports.bin'), str(temp),
                                                   str(int(far)), str(profile['kernel']), str(temp / 'native-link.bin')], text=True)
