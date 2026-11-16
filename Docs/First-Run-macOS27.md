@@ -63,3 +63,26 @@ sudo dmesg | grep -E 'SimpleBCM: (iouc|loader)'
 2. 按真实 `outputSize` 修正 `GoldenGateABI`，重建并跑 31 项 native ABI 校验。
 3. 复验关联、扫描、睡眠唤醒、AWDL/AirDrop；验收以 `bcmprobe --scan` 返回非空
    SSID 且实际关联成功为准，不以编译/ABI 校验/kext 加载代替。
+
+## 后续：根因确认（DEBUG 实机，2026-11-16 14:46）
+
+DEBUG 版部署并重启后，`sudo dmesg` 抓到决定性一行：
+
+```
+SimpleBCM: iouc en1 command 0xc02869c9 request 12 length 23 output 23 result 0xe00002c2
+```
+
+- `0xc02869c9` = GetCommand，`request 12` = CardCapabilitiesRequest。
+- **wifid 传入的 output 是 23 字节，而 `GoldenGateABI.capabilitySize` 是 Tahoe 的 21。**
+- `UserClient::runCommand` 中 `outputSize == abi.capabilitySize` 不成立，走到
+  `goto done`，带着默认 `kIOReturnBadArgument` 返回，因此每次打开客户端都失败。
+
+同一份 dmesg 还显示 airportd 在发 `469/483/490/512/575/363` 等 IOCTL，全部
+`not recognized: N out of 417`。417 是内嵌 **BrcmTahoe** payload 的 Apple80211
+命令表上限（`AirPortSHA256 = 0b6cf936…`，见 `Tools/native_abi.py` 的 `BrcmTahoe`）；
+27 的 airportd 新增命令超出该表。这一层是并列的第二障碍，先修 capability 尺寸
+再观察扫描路径是否还需要命令表扩展。
+
+修复：`WirelessABI.hpp` 的 `GoldenGateABI.capabilitySize` 由 21 改为 **23**，
+`expandCapabilities` 会把底层驱动的 12 字节能力结构补齐到 23 并清零新增字节。
+
