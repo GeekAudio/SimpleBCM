@@ -105,3 +105,19 @@ legacy 0x48C 结构补齐到 0x8E8，新增 8 字节清零。
 同一份日志里仍有 `request 103`（2280，result 0x66）、`request 69`（15064，
 result 0x16）以及 469/483/490/512/575/363 的 IOCTL 超界。先验证 request 11
 是否成功，再判断这些是否需要单独处理。
+
+## 修复 3：request 103 → 11 映射（实验）
+
+`scanResultSize` 改为 0x8E8 后，`request 11` 成功 10 次（`ScanRecords=10`），
+但 Wi-Fi 菜单仍无列表。dmesg 同时显示 27 的 airportd 在发：
+
+```
+request 103 length 2280 output 2280 result 0x00000066   (46 次)
+```
+
+`0x66` 是内嵌 Tahoe 驱动返回的“不支持”。103 与 11 同为 GetCommand、
+同为 2280 字节输出，判断它是 27 的扫描结果新请求号。
+
+处理：`UserClient::runCommand` 把 103 也纳入 scanResult 判定，转发给内嵌驱动前
+把 `legacy.request.type` 改写回 11；`prepareScanResult` / `expandScanResult`
+继续按 0x8E8 处理。若实验成功，菜单应出现扫描列表；失败则回滚该提交。

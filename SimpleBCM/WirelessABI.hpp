@@ -22,6 +22,9 @@ constexpr size_t EventCapacity = 0x4000;
 constexpr size_t MaximumEventPayload = 0x1000;
 constexpr uint32_t EventNotification = 0xE00002D5;
 constexpr uint32_t ScanResultRequest = 11;
+// macOS 27 airportd 新增的扫描结果请求号（长度与 ScanResultRequest 相同，均为 0x8E8）。
+// 内嵌 Tahoe 驱动不认识 103，会返回 0x66；Bridge 层把它映射回 11。
+constexpr uint32_t GoldenGateScanResultRequest = 103;
 constexpr uint32_t ScanMultipleRequest = 86;
 constexpr size_t LegacyScanMultipleSize = 0x14E0;
 constexpr size_t NativeScanMultipleSize = 0x14E8;

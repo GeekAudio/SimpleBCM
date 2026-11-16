@@ -281,7 +281,9 @@ IOReturn BCM80211UserClient::runCommand(IOExternalMethodArguments *arguments, si
     const bool get = header->command == bcm::GetCommand;
     const auto &abi = bcm::Bridge::abi();
     const bool scalar = get && bcm::Bridge::isScalarGet(static_cast<uint32_t>(request));
-    const bool scanResult = get && request == bcm::ScanResultRequest && outputSize == abi.scanResultSize;
+    const bool scanResult = get &&
+        (request == bcm::ScanResultRequest || request == bcm::GoldenGateScanResultRequest) &&
+        outputSize == abi.scanResultSize;
     const bool capabilities = get && request == bcm::CardCapabilitiesRequest &&
         outputSize == abi.capabilitySize;
     const bool associate = set && request == bcm::AssociateRequest;
@@ -294,7 +296,7 @@ IOReturn BCM80211UserClient::runCommand(IOExternalMethodArguments *arguments, si
     if ((!set && !get) || header->length > capacity ||
         strncmp(legacy.request.interfaceName, endpoint.name, sizeof(endpoint.name)))
         goto done;
-    if ((get && request == bcm::ScanResultRequest && !scanResult) ||
+    if ((get && (request == bcm::ScanResultRequest || request == bcm::GoldenGateScanResultRequest) && !scanResult) ||
         (get && request == bcm::CardCapabilitiesRequest && !capabilities) ||
         (associate && header->length != abi.associateSize) ||
         (set && request == bcm::ScanMultipleRequest && header->length != abi.scanMultipleSize) ||
@@ -318,8 +320,12 @@ IOReturn BCM80211UserClient::runCommand(IOExternalMethodArguments *arguments, si
     }
     legacy.request.data = reinterpret_cast<uintptr_t>(shadow);
     legacy.request.length = static_cast<uint32_t>(get ? outputSize : header->length);
-    if (scanResult && !bcm::prepareScanResult(legacy.request, shadow, capacity, abi))
-        goto done;
+    if (scanResult) {
+        // 103 只存在于 27 的用户态；内嵌 Tahoe 驱动按 11 处理。
+        legacy.request.type = bcm::ScanResultRequest;
+        if (!bcm::prepareScanResult(legacy.request, shadow, capacity, abi))
+            goto done;
+    }
     if (set && request == bcm::ScanMultipleRequest &&
         !bcm::prepareScanMultiple(legacy.request, shadow, capacity, abi))
         goto done;
