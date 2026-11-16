@@ -79,9 +79,11 @@ constexpr UserABI TahoeABI {25, "Tahoe", 0x8E0, 21, 0x38C, 0x1D4, 0x234,
     AirPortBackend::Tahoe, AssociateLayout::Extended, JoinEventPolicy::Tahoe};
 // Golden Gate 的 IO80211 用户态派发表与 Tahoe 逐项相同（9 个 selector），
 // 类大小与虚表槽数也未变，因此沿用同一套编解码常量。
-// 唯一例外：实测 27.2 wifid 的卡能力查询 output 为 23 字节（Tahoe 为 21），
-// 沿用 21 会让 UserClient::runCommand 直接返回 kIOReturnBadArgument。
-constexpr UserABI GoldenGateABI {27, "GoldenGate", 0x8E0, 23, 0x38C, 0x1D4, 0x234,
+// 实测 27.2 wifid 的两处尺寸差异（dmesg iouc）：
+//   request 12 capability: output 23（Tahoe 21）
+//   request 11 scanResult: output 2280 = 0x8E8（Tahoe 0x8E0）
+// 沿用 Tahoe 值会让 UserClient::runCommand 直接返回 kIOReturnBadArgument。
+constexpr UserABI GoldenGateABI {27, "GoldenGate", 0x8E8, 23, 0x38C, 0x1D4, 0x234,
     NativeScanMultipleSize, NativeRoamProfileSize, NativeDriverAvailableSize, 9,
     AirPortBackend::Tahoe, AssociateLayout::Extended, JoinEventPolicy::Tahoe};
 

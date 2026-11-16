@@ -86,3 +86,22 @@ SimpleBCM: iouc en1 command 0xc02869c9 request 12 length 23 output 23 result 0xe
 修复：`WirelessABI.hpp` 的 `GoldenGateABI.capabilitySize` 由 21 改为 **23**，
 `expandCapabilities` 会把底层驱动的 12 字节能力结构补齐到 23 并清零新增字节。
 
+
+## 修复 2：scanResultSize 0x8E0 → 0x8E8
+
+capability 修复（23）部署后，`LastResult` 变为 0，能力查询放行；新的 dmesg 显示：
+
+```
+request 11 length 2280 output 2280 result 0xe00002c2   (10 次)
+```
+
+`request 11` = ScanResultRequest，2280 = **0x8E8**，而 `GoldenGateABI.scanResultSize`
+仍是 Tahoe 的 0x8E0（2272）。`prepareScanResult` 要求入参长度等于
+`abi.scanResultSize`，不匹配即 `goto done`，扫描结果永远读不出来。
+
+修复：`scanResultSize` 改为 **0x8E8**；`expandScanResult` 会把底层驱动的
+legacy 0x48C 结构补齐到 0x8E8，新增 8 字节清零。
+
+同一份日志里仍有 `request 103`（2280，result 0x66）、`request 69`（15064，
+result 0x16）以及 469/483/490/512/575/363 的 IOCTL 超界。先验证 request 11
+是否成功，再判断这些是否需要单独处理。
