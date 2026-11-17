@@ -332,8 +332,9 @@ IOReturn BCM80211UserClient::runCommand(IOExternalMethodArguments *arguments, si
             memcpy(bcm::associateSsidBuffer, shadow + 0x14, length);
             __atomic_store_n(&bcm::counters.associateSsidLength, length, __ATOMIC_RELAXED);
         }
-        /* a new join starts a new current-network record; drop the previous one until a scan result matches */
-        __atomic_store_n(&bcm::counters.currentNetworkValid, 0u, __ATOMIC_RELAXED);
+        /* Keep the previous record valid across a re-join: 27 asks for CURRENT_NETWORK right after association,
+           before the next scan result can be matched, and a gap there maps to -3903 in IO80211.framework. The
+           record is only dropped on an explicit disassociate. */
         __atomic_fetch_add(&bcm::counters.associationRequests, 1ULL, __ATOMIC_RELAXED);
         __atomic_store_n(&bcm::counters.lastAssociateLength, header->length, __ATOMIC_RELAXED);
         if (goldenGateAssociate)
