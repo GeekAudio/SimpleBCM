@@ -990,7 +990,7 @@ void Bridge::publish(IOService *service) {
     service->setProperty("C103Hits", __atomic_load_n(&counters.c103Hits, __ATOMIC_RELAXED), 32);
     service->setProperty("Legacy103Patched", __atomic_load_n(&counters.legacy103Patched, __ATOMIC_RELAXED), 32);
     service->setProperty("Legacy103Fallback", __atomic_load_n(&counters.legacy103Fallback, __ATOMIC_RELAXED), 32);
-    for (unsigned i = 0; i < 32; ++i) {
+    for (unsigned i = 0; i < 40; ++i) {
         char name[24];
         snprintf(name, sizeof(name), "ScanW%u", i);
         service->setProperty(name, __atomic_load_n(&counters.scanSnapshot[i], __ATOMIC_RELAXED), 32);

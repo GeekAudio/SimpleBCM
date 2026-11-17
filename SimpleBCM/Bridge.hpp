@@ -92,7 +92,7 @@ struct Counters {
        Tahoe payload's handler is a three-instruction stub (movl $0x66,%eax; ret). Building that record needs the
        legacy scan-result field offsets, which the driver never exposes symbolically: keep the head of the last
        successful scan result and of the last associate request so the layout can be read back from ioreg. */
-    uint32_t scanSnapshot[32];
+    uint32_t scanSnapshot[40];
     uint32_t assocSnapshot[16];
     /* 11-17/18 · material for GET CURRENT_NETWORK (103). The buffers are heap-allocated in
        Bridge::initialize: growing Counters' static BSS by ~1.2 KB made the kext hang at

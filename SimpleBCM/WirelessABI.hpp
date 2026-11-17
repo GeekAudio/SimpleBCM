@@ -221,12 +221,12 @@ inline bool encodeScalarResult(Request &request, uint8_t *buffer, size_t capacit
 inline bool prepareScanResult(Request &request, uint8_t *buffer, size_t capacity, const UserABI &abi) {
     if (!buffer || capacity < abi.scanResultSize || request.length != abi.scanResultSize)
         return false;
-    uint16_t length = static_cast<uint16_t>(buffer[ScanIELengthOffset] |
-                                          (uint16_t(buffer[ScanIELengthOffset + 1]) << 8));
-    if (length > LegacyScanIECapacity)
-        length = LegacyScanIECapacity;
-    buffer[ScanIELengthOffset] = static_cast<uint8_t>(length);
-    buffer[ScanIELengthOffset + 1] = static_cast<uint8_t>(length >> 8);
+    /* 11-18 · payload0's getScanResult copies min(client buffer +0x8A, cached record +0x8A) bytes of IE
+       (0x78c38..0x78c5f). 27 hands down a buffer whose +0x8A is not the legacy capacity, so treating that
+       value as a clamp dropped every IE; 27 then saw "SSID present, no SSID/RSN IE" and reported the network
+       as hidden (log: "Hidden SSIDs (2) : 401, 401-5G"). State the legacy capacity explicitly instead. */
+    buffer[ScanIELengthOffset] = static_cast<uint8_t>(LegacyScanIECapacity);
+    buffer[ScanIELengthOffset + 1] = static_cast<uint8_t>(LegacyScanIECapacity >> 8);
     request.length = LegacyScanResultSize;
     return true;
 }
