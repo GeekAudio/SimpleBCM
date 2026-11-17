@@ -288,7 +288,8 @@ inline void writeUInt32(uint8_t *buffer, uint32_t value) {
 }
 
 inline bool prepareScanMultiple(Request &request, uint8_t *buffer, size_t capacity, const UserABI &abi) {
-    if (!buffer || capacity < abi.scanMultipleSize || request.length != abi.scanMultipleSize ||
+    if (!buffer || capacity < abi.scanMultipleSize ||
+        (request.length != abi.scanMultipleSize && request.length != LegacyScanMultipleSize) ||
         readUInt32(buffer) != 1 || readUInt32(buffer + 8) > 10 ||
         readUInt32(buffer + 0x19C) > 16 || readUInt32(buffer + 0x210) > 400)
         return false;

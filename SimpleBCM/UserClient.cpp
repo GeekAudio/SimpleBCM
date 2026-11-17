@@ -310,6 +310,18 @@ IOReturn BCM80211UserClient::runCommand(IOExternalMethodArguments *arguments, si
        be dispatched; no branch below reads them, so command semantics are unchanged. */
     if (set && request == bcm::ScanRequest)
         __atomic_fetch_add(&bcm::counters.scanRequests, 1ULL, __ATOMIC_RELAXED);
+    if (set && request == bcm::ScanRequest) {
+        __atomic_store_n(&bcm::counters.lastScanRequestLength, header->length, __ATOMIC_RELAXED);
+        /* 27 sends 0x1598 while the legacy payload only consumes 0x1550; snapshot the tail so we can tell
+           whether anything past the legacy buffer carries state worth translating. */
+        for (unsigned w = 0; w < 8; ++w) {
+            uint32_t value = 0;
+            const size_t offset = 0x1550 + w * 4;
+            if (offset + sizeof(value) <= header->length)
+                memcpy(&value, shadow + offset, sizeof(value));
+            __atomic_store_n(&bcm::counters.scanTailSnapshot[w], value, __ATOMIC_RELAXED);
+        }
+    }
     if (set && request == bcm::ScanMultipleRequest)
         __atomic_fetch_add(&bcm::counters.scanMultipleRequests, 1ULL, __ATOMIC_RELAXED);
     if (get && request == bcm::ScanResultRequest)
@@ -351,7 +363,9 @@ IOReturn BCM80211UserClient::runCommand(IOExternalMethodArguments *arguments, si
         __atomic_store_n(&bcm::counters.lastAssociateLength, header->length, __ATOMIC_RELAXED);
         if (goldenGateAssociate)
             __atomic_fetch_add(&bcm::counters.goldenGateAssociateRequests, 1ULL, __ATOMIC_RELAXED);
-        if (header->length != abi.associateSize)
+        /* 27 sends 0x290; that is only a mismatch when the golden-gate translator will not convert it */
+        if (header->length != abi.associateSize &&
+            !(goldenGateAssociate && bcm::Bridge::goldenGateAssociateEnabled()))
             __atomic_fetch_add(&bcm::counters.associateLengthMismatch, 1ULL, __ATOMIC_RELAXED);
     }
     if (set && request == bcm::DisassociateRequest) {
@@ -366,7 +380,8 @@ IOReturn BCM80211UserClient::runCommand(IOExternalMethodArguments *arguments, si
     if ((get && request == bcm::ScanResultRequest && !scanResult) ||
         (get && request == bcm::CardCapabilitiesRequest && !capabilities) ||
         (associate && !goldenGateAssociate && header->length != abi.associateSize) ||
-        (set && request == bcm::ScanMultipleRequest && header->length != abi.scanMultipleSize) ||
+        (set && request == bcm::ScanMultipleRequest && header->length != abi.scanMultipleSize &&
+         header->length != bcm::LegacyScanMultipleSize) ||
         (request == bcm::RoamProfileRequest && (get ? outputSize : header->length) != abi.roamProfileSize))
         goto done;
     if (get && request == 0x178 && !entitled("com.apple.private.wifi.IO80211.get_pmk")) {
