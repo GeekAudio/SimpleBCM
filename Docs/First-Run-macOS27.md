@@ -78,9 +78,10 @@ SimpleBCM: iouc en1 command 0xc02869c9 request 12 length 23 output 23 result 0xe
   `goto done`，带着默认 `kIOReturnBadArgument` 返回，因此每次打开客户端都失败。
 
 同一份 dmesg 还显示 airportd 在发 `469/483/490/512/575/363` 等 IOCTL，全部
-`not recognized: N out of 417`。417 是内嵌 **BrcmTahoe** payload 的 Apple80211
-命令表上限（`AirPortSHA256 = 0b6cf936…`，见 `Tools/native_abi.py` 的 `BrcmTahoe`）；
-27 的 airportd 新增命令超出该表。这一层是并列的第二障碍，先修 capability 尺寸
+`not recognized: N out of 417`。**417 是内嵌 IO80211FamilyLegacy（payload0）的
+Apple80211 命令表上限**，不是 BrcmTahoe 的表（后者是 payload1/payload2，命令表
+不走这条分派）。27 的 airportd 新增命令超出该表：363/483/490/512 在表内但 handler
+返回 `0x66`，469/575 在表外。这一层是并列的第二障碍，先修 capability 尺寸
 再观察扫描路径是否还需要命令表扩展。
 
 修复：`WirelessABI.hpp` 的 `GoldenGateABI.capabilitySize` 由 21 改为 **23**，
@@ -105,6 +106,12 @@ legacy 0x48C 结构补齐到 0x8E8，新增 8 字节清零。
 同一份日志里仍有 `request 103`（2280，result 0x66）、`request 69`（15064，
 result 0x16）以及 469/483/490/512/575/363 的 IOCTL 超界。先验证 request 11
 是否成功，再判断这些是否需要单独处理。
+
+> **2026-11-18 更新**：103 已按正确方向实现——不是映射到 11，而是在
+> `Bridge::prepareImage` 中把 payload0 legacy get 表 103 槽位替换为 SimpleBCM 自己的
+> handler（按偏移 `0x14a140` 定位、`0xf8b00` 处 417 项计数校验），并在 user client
+> 侧对已匹配的扫描记录本地应答；运行期证据 `Legacy103Patched=1`、`C103Hits` 持续增长、
+> 菜单栏 Wi‑Fi 图标恢复正常。下文「修复 3」保留为历史记录。
 
 ## 修复 3：request 103 → 11 映射（实验）
 
