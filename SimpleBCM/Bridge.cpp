@@ -34,7 +34,6 @@ static uint32_t state;
 static bool awdlCoexistenceEnabled;
 static bool tahoeDMAEnabled;
 static bool goldenGateAssociateBoot;
-static bool currentNetworkBoot;
 static IOService *observedController;
 static const char *failure = "WaitingForDependencies";
 static IOSimpleLock *contextLock;
@@ -113,10 +112,6 @@ bool Bridge::ready() {
 
 bool Bridge::goldenGateAssociateEnabled() {
     return goldenGateAssociateBoot;
-}
-
-bool Bridge::currentNetworkEnabled() {
-    return currentNetworkBoot;
 }
 
 static int countSetAssociate(IOService *self, OSObject *object, void *data) {
@@ -806,10 +801,6 @@ void Bridge::initialize() {
        4-byte gap. Without this boot arg goldengate requests are counted and rejected without
        touching the buffer. */
     goldenGateAssociateBoot = PE_parse_boot_argn("-sbcmggassoc", &value, sizeof(value));
-    /* 11-18 · the CURRENT_NETWORK answer is opt-in while a boot-time regression is being bisected:
-       the 27 build that carries it hung at ExitBootServices while the previous one started. With this
-       switch absent the kext behaves exactly like the known-good build. */
-    currentNetworkBoot = PE_parse_boot_argn("-sbcm103", &value, sizeof(value));
     activeABI = userABIForKernel(static_cast<uint32_t>(getKernelVersion()));
     if (!activeABI) {
         reject("UnsupportedKernel");
