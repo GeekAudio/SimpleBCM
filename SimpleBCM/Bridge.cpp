@@ -842,6 +842,16 @@ void Bridge::publish(IOService *service) {
     service->setProperty("LastRequestSet", __atomic_load_n(&counters.lastRequestSet, __ATOMIC_RELAXED), 32);
     service->setProperty("LastRejectType", __atomic_load_n(&counters.lastRejectType, __ATOMIC_RELAXED), 32);
     service->setProperty("LastRejectKind", __atomic_load_n(&counters.lastRejectKind, __ATOMIC_RELAXED), 32);
+    service->setProperty("ReqCount", __atomic_load_n(&counters.requestHistoryCount, __ATOMIC_RELAXED), 32);
+    for (unsigned i = 0; i < 16; ++i) {
+        char name[24];
+        snprintf(name, sizeof(name), "Req%u", i);
+        service->setProperty(name, __atomic_load_n(&counters.requestHistory[i], __ATOMIC_RELAXED), 32);
+        snprintf(name, sizeof(name), "ReqRes%u", i);
+        service->setProperty(name, __atomic_load_n(&counters.requestHistoryResult[i], __ATOMIC_RELAXED), 32);
+        snprintf(name, sizeof(name), "ReqFlg%u", i);
+        service->setProperty(name, __atomic_load_n(&counters.requestHistoryFlags[i], __ATOMIC_RELAXED), 32);
+    }
     service->setProperty("LastResult", __atomic_load_n(&counters.lastResult, __ATOMIC_RELAXED), 32);
     service->setProperty("LastAssociationResult", __atomic_load_n(&counters.lastAssociationResult, __ATOMIC_RELAXED), 32);
     service->setProperty("LastAssociationEventLength", __atomic_load_n(&counters.lastAssociationEventLength, __ATOMIC_RELAXED), 32);

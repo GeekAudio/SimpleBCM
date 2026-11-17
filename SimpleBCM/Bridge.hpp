@@ -71,6 +71,14 @@ struct Counters {
     uint64_t rejects;
     uint64_t rejectInterfaceInactive;
     uint64_t rejectControllerInactive;
+    /* 11-17 · the last 16 commands in order: request, flags (bit0 set, bits8+ kind) and result. Published as
+       ReqHist0..15 / ReqHistN. One slot of history hid whether ASSOCIATE(20) was never sent or merely renamed
+       (the 27 set tables have slot 20 empty and slot 254 populated). */
+    uint32_t requestHistory[16];
+    uint32_t requestHistoryFlags[16];
+    uint32_t requestHistoryResult[16];
+    uint32_t requestHistoryNext;
+    uint32_t requestHistoryCount;
 };
 
 extern Counters counters;

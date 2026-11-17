@@ -305,6 +305,11 @@ IOReturn BCM80211UserClient::runCommand(IOExternalMethodArguments *arguments, si
     __atomic_store_n(&bcm::counters.lastRequest, static_cast<uint32_t>(request), __ATOMIC_RELAXED);
     __atomic_store_n(&bcm::counters.lastRequestKind, static_cast<uint32_t>(endpoint.kind), __ATOMIC_RELAXED);
     __atomic_store_n(&bcm::counters.lastRequestSet, set ? 1u : 0u, __ATOMIC_RELAXED);
+    const uint32_t historySlot = __atomic_fetch_add(&bcm::counters.requestHistoryNext, 1u, __ATOMIC_RELAXED) & 15u;
+    __atomic_store_n(&bcm::counters.requestHistory[historySlot], static_cast<uint32_t>(request), __ATOMIC_RELAXED);
+    __atomic_store_n(&bcm::counters.requestHistoryFlags[historySlot],
+                     static_cast<uint32_t>(set ? 1u : 0u) | (static_cast<uint32_t>(endpoint.kind) << 8), __ATOMIC_RELAXED);
+    __atomic_fetch_add(&bcm::counters.requestHistoryCount, 1ULL, __ATOMIC_RELAXED);
     if (associate)
         __atomic_fetch_add(&bcm::counters.associationRequests, 1ULL, __ATOMIC_RELAXED);
     if ((!set && !get) || header->length > capacity ||
@@ -418,6 +423,7 @@ done:
                static_cast<unsigned long>(outputSize), result);
     }
     __atomic_store_n(&bcm::counters.lastResult, static_cast<uint32_t>(result), __ATOMIC_RELAXED);
+    __atomic_store_n(&bcm::counters.requestHistoryResult[(historySlot) & 15u], static_cast<uint32_t>(result), __ATOMIC_RELAXED);
     bzero(packet, packetSize);
     IOFree(packet, packetSize);
     return result;
