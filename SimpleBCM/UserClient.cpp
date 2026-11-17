@@ -288,7 +288,12 @@ IOReturn BCM80211UserClient::runCommand(IOExternalMethodArguments *arguments, si
     const bool roamProfiles = request == bcm::RoamProfileRequest && abi.roamProfileSize == bcm::NativeRoamProfileSize;
     bool outputPrepared = false;
     const bool probeRequest = request == 10 || request == 86 || request == 11 ||
-        request == 69 || request == 103 || request == 207 || request == 15;
+        request == 69 || request == 103 || request == 207 || request == 15 ||
+        /* 11-17 · 27's connection flow leaves LastRequest=254 / LastResult=0 on the bridge and then never
+           sends ASSOCIATE(20): the 27 set tables have slot 20 EMPTY and slot 254 populated, so 254 is the
+           likely associate on this Darwin. Print its length and first bytes to tell a 0x8E8 associate buffer
+           from a small leave/scan request. */
+        request == 254 || request == 20;
     if (probeRequest) {
         DBGLOG("probe", "%s req=%u cmd=0x%08x len=%u out=%lu hdr=%u data=%02x %02x %02x %02x %02x %02x %02x %02x",
                endpoint.name, request, header->command, legacy.request.length,
