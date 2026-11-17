@@ -121,3 +121,20 @@ request 103 length 2280 output 2280 result 0x00000066   (46 次)
 处理：`UserClient::runCommand` 把 103 也纳入 scanResult 判定，转发给内嵌驱动前
 把 `legacy.request.type` 改写回 11；`prepareScanResult` / `expandScanResult`
 继续按 0x8E8 处理。若实验成功，菜单应出现扫描列表；失败则回滚该提交。
+
+## 修复 3 回滚：103 不是 scanResult
+
+公开枚举（itlwm / MacKernelSDK，最大 353）里 `APPLE80211_IOC_CURRENT_NETWORK = 103`，
+不是扫描结果；把 103 映射到 11 会让“当前网络”查询返回扫描结构，方向错误。
+该映射已回滚。
+
+## 修复 4：动态 probe 取证
+
+静态反汇编 airportd（arm64e slice）确认：
+- `469/363/483/490/575` 都是 `Apple80211Set` 的配置命令（WoW/参数字典），不是扫描入口；
+- `Apple80211Set/Get` 的 72 个直接调用里没有 `10/86`（SCAN_REQ / SCAN_REQ_MULTIPLE），
+  扫描调用使用了动态 cmd，静态抓不全。
+
+因此在 `UserClient::runCommand` 增加 DEBUG 日志，记录 `request 11/69/103/207/15`
+的 command、length、outputSize、header length 和前 8 字节，用于确定 27 的扫描
+发起/结果读取路径与结构。日志仅在 Debug 构建（`DEBUG=1`）输出。

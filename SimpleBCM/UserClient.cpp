@@ -281,14 +281,19 @@ IOReturn BCM80211UserClient::runCommand(IOExternalMethodArguments *arguments, si
     const bool get = header->command == bcm::GetCommand;
     const auto &abi = bcm::Bridge::abi();
     const bool scalar = get && bcm::Bridge::isScalarGet(static_cast<uint32_t>(request));
-    const bool scanResult = get &&
-        (request == bcm::ScanResultRequest || request == bcm::GoldenGateScanResultRequest) &&
-        outputSize == abi.scanResultSize;
+    const bool scanResult = get && request == bcm::ScanResultRequest && outputSize == abi.scanResultSize;
     const bool capabilities = get && request == bcm::CardCapabilitiesRequest &&
         outputSize == abi.capabilitySize;
     const bool associate = set && request == bcm::AssociateRequest;
     const bool roamProfiles = request == bcm::RoamProfileRequest && abi.roamProfileSize == bcm::NativeRoamProfileSize;
     bool outputPrepared = false;
+    if (request == 11 || request == 69 || request == 103 || request == 207 || request == 15) {
+        DBGLOG("probe", "%s req=%u cmd=0x%08x len=%u out=%lu hdr=%u data=%02x %02x %02x %02x %02x %02x %02x %02x",
+               endpoint.name, request, header->command, legacy.request.length,
+               static_cast<unsigned long>(outputSize), header->length,
+               shadow[0], shadow[1], shadow[2], shadow[3],
+               shadow[4], shadow[5], shadow[6], shadow[7]);
+    }
     __atomic_fetch_add(&bcm::counters.commands, 1ULL, __ATOMIC_RELAXED);
     __atomic_store_n(&bcm::counters.lastRequest, static_cast<uint32_t>(request), __ATOMIC_RELAXED);
     if (associate)
@@ -296,7 +301,7 @@ IOReturn BCM80211UserClient::runCommand(IOExternalMethodArguments *arguments, si
     if ((!set && !get) || header->length > capacity ||
         strncmp(legacy.request.interfaceName, endpoint.name, sizeof(endpoint.name)))
         goto done;
-    if ((get && (request == bcm::ScanResultRequest || request == bcm::GoldenGateScanResultRequest) && !scanResult) ||
+    if ((get && request == bcm::ScanResultRequest && !scanResult) ||
         (get && request == bcm::CardCapabilitiesRequest && !capabilities) ||
         (associate && header->length != abi.associateSize) ||
         (set && request == bcm::ScanMultipleRequest && header->length != abi.scanMultipleSize) ||
@@ -320,12 +325,8 @@ IOReturn BCM80211UserClient::runCommand(IOExternalMethodArguments *arguments, si
     }
     legacy.request.data = reinterpret_cast<uintptr_t>(shadow);
     legacy.request.length = static_cast<uint32_t>(get ? outputSize : header->length);
-    if (scanResult) {
-        // 103 只存在于 27 的用户态；内嵌 Tahoe 驱动按 11 处理。
-        legacy.request.type = bcm::ScanResultRequest;
-        if (!bcm::prepareScanResult(legacy.request, shadow, capacity, abi))
-            goto done;
-    }
+    if (scanResult && !bcm::prepareScanResult(legacy.request, shadow, capacity, abi))
+        goto done;
     if (set && request == bcm::ScanMultipleRequest &&
         !bcm::prepareScanMultiple(legacy.request, shadow, capacity, abi))
         goto done;
