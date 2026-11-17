@@ -773,13 +773,29 @@ void Bridge::patchImage(KernelPatcher &patcher, size_t index, mach_vm_address_t 
            our handler. The table lives in the payload's __DATA,__const, which is still writable here — the kmod
            is only protected after Bridge::prepareImage returns. */
         {
-            const uintptr_t table = patcher.solveSymbol(index, "_gGetHandlerTable");
-            const uintptr_t copyIn = patcher.solveSymbol(index, "__ZN17IO80211Controller6copyInEyPvm");
+            /* The symbol metadata does not always carry this table, so fall back to its offset inside the very
+               payload the guards above already validated (payload0: table 0x14a140, count 0xf8b00 == 417). */
+            constexpr uintptr_t tableOffset = 0x14a140;
+            constexpr uintptr_t countOffset = 0xf8b00;
+            constexpr uint32_t expectedCount = 417;
+            uintptr_t table = patcher.solveSymbol(index, "_gGetHandlerTable");
+            if (!table)
+                table = patcher.solveSymbol(index, "gGetHandlerTable");
+            uintptr_t copyIn = patcher.solveSymbol(index, "__ZN17IO80211Controller6copyInEyPvm");
+            uint32_t count = 0;
+            if (countOffset + sizeof(count) <= size)
+                memcpy(&count, reinterpret_cast<const void *>(address + countOffset), sizeof(count));
+            if (!table && count == expectedCount &&
+                tableOffset + expectedCount * sizeof(uintptr_t) <= size) {
+                table = address + tableOffset;
+                __atomic_store_n(&counters.legacy103Fallback, 1u, __ATOMIC_RELAXED);
+            }
             if (table && copyIn) {
                 auto slot = reinterpret_cast<uintptr_t *>(table + (103 - 1) * sizeof(uintptr_t));
                 legacyCurrentNetworkOriginal = *slot;
                 legacyCopyIn = reinterpret_cast<LegacyCopyIn>(copyIn);
                 *slot = reinterpret_cast<uintptr_t>(&legacyGetCurrentNetwork);
+                __atomic_store_n(&counters.legacy103Patched, 1u, __ATOMIC_RELAXED);
                 SYSLOG("bridge", "legacy get 103 routed (was %p)", reinterpret_cast<void *>(legacyCurrentNetworkOriginal));
             } else {
                 DBGLOG("bridge", "legacy get 103 not routed (table=%p copyIn=%p)", reinterpret_cast<void *>(table),
@@ -966,6 +982,8 @@ void Bridge::publish(IOService *service) {
     service->setProperty("CurrentNetworkValid", __atomic_load_n(&counters.currentNetworkValid, __ATOMIC_RELAXED), 32);
     service->setProperty("Last103OutputSize", __atomic_load_n(&counters.last103OutputSize, __ATOMIC_RELAXED), 32);
     service->setProperty("C103Hits", __atomic_load_n(&counters.c103Hits, __ATOMIC_RELAXED), 32);
+    service->setProperty("Legacy103Patched", __atomic_load_n(&counters.legacy103Patched, __ATOMIC_RELAXED), 32);
+    service->setProperty("Legacy103Fallback", __atomic_load_n(&counters.legacy103Fallback, __ATOMIC_RELAXED), 32);
     for (unsigned i = 0; i < 32; ++i) {
         char name[24];
         snprintf(name, sizeof(name), "ScanW%u", i);

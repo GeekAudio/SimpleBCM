@@ -102,6 +102,8 @@ struct Counters {
     uint32_t currentNetworkValid;
     uint32_t last103OutputSize;
     uint32_t c103Hits;
+    uint32_t legacy103Patched;
+    uint32_t legacy103Fallback;
     uint32_t lastAssociateLength;
     uint32_t lastGoldenGateSample[GoldenGateSampleWords];
     uint32_t lastGoldenGateBssidCount;
