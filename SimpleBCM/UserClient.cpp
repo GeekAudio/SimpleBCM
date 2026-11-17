@@ -441,8 +441,21 @@ done:
         if (result == kIOReturnSuccess)
             result = status;
     }
-    if (scanResult && result == kIOReturnSuccess)
+    if (scanResult && result == kIOReturnSuccess) {
         __atomic_fetch_add(&bcm::counters.scanRecords, 1ULL, __ATOMIC_RELAXED);
+        for (unsigned w = 0; w < 32; ++w) {
+            uint32_t v = 0;
+            memcpy(&v, shadow + w * 4, sizeof(v));
+            __atomic_store_n(&bcm::counters.scanSnapshot[w], v, __ATOMIC_RELAXED);
+        }
+    }
+    if (associate && result == kIOReturnSuccess) {
+        for (unsigned w = 0; w < 16; ++w) {
+            uint32_t v = 0;
+            memcpy(&v, shadow + w * 4, sizeof(v));
+            __atomic_store_n(&bcm::counters.assocSnapshot[w], v, __ATOMIC_RELAXED);
+        }
+    }
     if (associate) {
         __atomic_store_n(&bcm::counters.lastAssociationResult, static_cast<uint32_t>(result), __ATOMIC_RELAXED);
         if (result == kIOReturnSuccess)

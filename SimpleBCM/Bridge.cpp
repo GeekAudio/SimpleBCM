@@ -893,6 +893,16 @@ void Bridge::publish(IOService *service) {
     service->setProperty("LastRejectType", __atomic_load_n(&counters.lastRejectType, __ATOMIC_RELAXED), 32);
     service->setProperty("LastRejectKind", __atomic_load_n(&counters.lastRejectKind, __ATOMIC_RELAXED), 32);
     service->setProperty("ReqCount", __atomic_load_n(&counters.requestHistoryCount, __ATOMIC_RELAXED), 32);
+    for (unsigned i = 0; i < 32; ++i) {
+        char name[24];
+        snprintf(name, sizeof(name), "ScanW%u", i);
+        service->setProperty(name, __atomic_load_n(&counters.scanSnapshot[i], __ATOMIC_RELAXED), 32);
+    }
+    for (unsigned i = 0; i < 16; ++i) {
+        char name[24];
+        snprintf(name, sizeof(name), "AssocW%u", i);
+        service->setProperty(name, __atomic_load_n(&counters.assocSnapshot[i], __ATOMIC_RELAXED), 32);
+    }
     for (unsigned i = 0; i < 16; ++i) {
         char name[24];
         snprintf(name, sizeof(name), "Req%u", i);

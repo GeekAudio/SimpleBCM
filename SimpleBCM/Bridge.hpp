@@ -88,6 +88,12 @@ struct Counters {
        GoldenGateAssociateRequests isolates the 0x290 layout. */
     uint64_t associateLengthMismatch;
     uint64_t goldenGateAssociateRequests;
+    /* 11-17 · 27 answers GET CURRENT_NETWORK (103) with the same 0x8E8 record it uses for a scan result, but the
+       Tahoe payload's handler is a three-instruction stub (movl $0x66,%eax; ret). Building that record needs the
+       legacy scan-result field offsets, which the driver never exposes symbolically: keep the head of the last
+       successful scan result and of the last associate request so the layout can be read back from ioreg. */
+    uint32_t scanSnapshot[32];
+    uint32_t assocSnapshot[16];
     uint32_t lastAssociateLength;
     uint32_t lastGoldenGateSample[GoldenGateSampleWords];
     uint32_t lastGoldenGateBssidCount;
