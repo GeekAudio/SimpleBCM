@@ -2,8 +2,13 @@
 
 日期：2026-11-18（Asia/Shanghai）
 机器：macOS 27.2（26B123 / Darwin 27.2.0，x86_64 Intel），BCM43602，`AirPort_BrcmNIC_Interface`
-代码：`simplebcm-r27`，分支 `wifi-assoc-probe`，HEAD `84348ff`
+代码：`simplebcm-r27`，分支 `wifi-assoc-probe`，取证基线 HEAD `84348ff`
 只读取证：未改 `/System`、`/Library`、EFI，未构建/部署/重启。所有实验仅在 `/tmp` 与工作区文档。
+
+> 版本注记：本报告取证时 HEAD 为 `84348ff`。写作后父代理已提交 `211c167`、`a5dc5ed`、`13587a2`；
+> 其中 `13587a2` 已按本报告 §6.1 的方向在 `UserClient.cpp` 中加入“re-join 保留 current-network 记录、
+> 仅在显式 disassociate 时清除”。因此 §5.3 的 103 时间窗口分析对 `84348ff` 成立；新 HEAD 下
+> re-join 窗口已收窄，但**首次关联/冷启动**在首次匹配扫描结果到达前仍可能返回 `0x66`，需按新 HEAD 复验。
 
 ---
 
@@ -633,8 +638,8 @@ nm -arch x86_64 .research/extract/payload0.bin | grep -E 'setLinkState|linkState
 /Library/Developer/CommandLineTools/usr/bin/llvm-objdump -d --arch=x86_64 \
   --start-address=0x9859c --stop-address=0x98b00 --no-show-raw-insn .research/extract/payload0.bin
 
-# 27 KC（Tools/kernel_collection.py）
-python3 - <<'PY'
+# 27 KC（Tools/kernel_collection.py；系统 python3 不可用）
+/Users/geek/.dsh/dsh-runtimes/dsh-primary-runtime/dependencies/python/bin/python3 - <<'PY'
 import sys; sys.path.insert(0,'Tools')
 from kernel_collection import KernelCollection
 kc=KernelCollection('/System/Library/KernelCollections/BootKernelExtensions.kc')
@@ -645,7 +650,7 @@ PY
 
 # 运行期
 ioreg -rn SimpleBCM -l | grep -E 'C103Hits|Legacy103Patched|CurrentNetworkValid|Last103OutputSize'
-log show --last 30m --info --debug --predicate 'processID == 217 AND eventMessage CONTAINS "type 103"'
+/usr/bin/log show --last 30m --info --debug --predicate 'processID == 217 AND eventMessage CONTAINS "type 103"'
 ```
 
 ---

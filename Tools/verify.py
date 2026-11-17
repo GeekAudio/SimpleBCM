@@ -462,7 +462,9 @@ template<unsigned Kernel> static void boundaries() {
         assert(request.length == bcm::LegacyScanResultSize);
         uint16_t limited;
         memcpy(&limited, buffer + bcm::ScanIELengthOffset, sizeof(limited));
-        assert(limited == std::min(capacity, uint16_t(bcm::LegacyScanIECapacity)));
+        /* prepareScanResult now states the legacy IE capacity outright: payload0's getScanResult copies
+           min(client +0x8A, cache +0x8A) bytes, so echoing 27's value back dropped every IE (hidden networks). */
+        assert(limited == uint16_t(bcm::LegacyScanIECapacity));
         uint8_t original[bcm::LegacyScanResultSize];
         memcpy(original, buffer, sizeof(original));
         assert(!bcm::expandScanResult(request, buffer, abi.scanResultSize - 1, abi));
