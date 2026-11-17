@@ -22,6 +22,21 @@ constexpr size_t EventCapacity = 0x4000;
 constexpr size_t MaximumEventPayload = 0x1000;
 constexpr uint32_t EventNotification = 0xE00002D5;
 constexpr uint32_t ScanResultRequest = 11;
+/* 11-18 · 27 airportd's request stream. 10/86/11/12/20 are required paths already handled by the
+   bridge; 363/469/483/490/512/575 are 27-only Sets, five of which fall beyond the embedded legacy
+   handler table while 363 is inside it and returns 0x66 from its handler. ScanRequest (request 10)
+   and ScanDoneEvent (event 10) are separate namespaces. */
+constexpr uint32_t ScanRequest = 10;
+constexpr uint32_t CurrentNetworkRequest = 103;
+constexpr uint32_t UsbHostNotificationRequest = 363;
+constexpr uint32_t OsFeatureFlagsRequest = 469;
+constexpr uint32_t ExternalPowerStateRequest = 483;
+constexpr uint32_t ProductInfoRequest = 490;
+constexpr uint32_t InfraEnumeratedRequest = 512;
+constexpr uint32_t OsEligibilityRequest = 575;
+/* Capacity of the embedded IO80211FamilyLegacy (payloads[0]) Get/Set dispatch table. 27's system
+   IO80211Family keeps its own legacy tables at 590 (Get) / 457 (Set); the two layers differ. */
+constexpr uint32_t LegacyHandlerTableCapacity = 417;
 constexpr uint32_t ScanMultipleRequest = 86;
 constexpr size_t LegacyScanMultipleSize = 0x14E0;
 constexpr size_t NativeScanMultipleSize = 0x14E8;

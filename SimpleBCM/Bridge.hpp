@@ -53,9 +53,20 @@ struct Counters {
     uint64_t associationEventConversions;
     uint64_t associationEventReadErrors;
     uint64_t powerAvailabilityEvents;
+    /* 11-18 · request-flow diagnostics (Patch A, pure counters): 10/86/11/103, requests beyond the
+       embedded legacy table (>417) and every 0x66 return. Scalars only: the heap move for the large
+       arrays above stays required because it was the static BSS growth, not these fields, that hung
+       the 27.2 boot. */
+    uint64_t scanRequests;
+    uint64_t scanMultipleRequests;
+    uint64_t scanResultRequests;
+    uint64_t currentNetworkRequests;
+    uint64_t superRangeRequests;
+    uint64_t unsupportedRequests;
     uint32_t lastAssociationEventLength;
     uint32_t lastAssociationEventReadResult;
     uint32_t lastAvailabilityReadResult;
+    uint32_t lastUnsupportedRequest;
     uint64_t selectors[9];
     uint32_t lastRequest;
     uint32_t lastResult;

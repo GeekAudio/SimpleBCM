@@ -960,6 +960,12 @@ void Bridge::publish(IOService *service) {
         {"AssociationEventConversions", &counters.associationEventConversions},
         {"AssociationEventReadErrors", &counters.associationEventReadErrors},
         {"PowerAvailabilityEvents", &counters.powerAvailabilityEvents},
+        {"ScanRequests", &counters.scanRequests},
+        {"ScanMultipleRequests", &counters.scanMultipleRequests},
+        {"ScanResultRequests", &counters.scanResultRequests},
+        {"CurrentNetworkRequests", &counters.currentNetworkRequests},
+        {"SuperRangeRequests", &counters.superRangeRequests},
+        {"UnsupportedRequests", &counters.unsupportedRequests},
         {"Rejects", &counters.rejects},
         {"RejectInterfaceInactive", &counters.rejectInterfaceInactive},
         {"RejectControllerInactive", &counters.rejectControllerInactive},
@@ -1037,6 +1043,15 @@ void Bridge::publish(IOService *service) {
     service->setProperty("LastAssociationEventLength", __atomic_load_n(&counters.lastAssociationEventLength, __ATOMIC_RELAXED), 32);
     service->setProperty("LastAssociationEventReadResult", __atomic_load_n(&counters.lastAssociationEventReadResult, __ATOMIC_RELAXED), 32);
     service->setProperty("LastAvailabilityReadResult", __atomic_load_n(&counters.lastAvailabilityReadResult, __ATOMIC_RELAXED), 32);
+    service->setProperty("LastUnsupportedRequest", __atomic_load_n(&counters.lastUnsupportedRequest, __ATOMIC_RELAXED), 32);
+    /* 11-18 · Patch A ABI sizes, from the same UserABI the bridge dispatches with. activeABI is null
+       only on an unsupported kernel (Bridge::initialize rejects and returns), but keep the guard. */
+    if (activeABI) {
+        service->setProperty("ScanResultSize", static_cast<uint64_t>(activeABI->scanResultSize), 32);
+        service->setProperty("CapabilitySize", static_cast<uint64_t>(activeABI->capabilitySize), 32);
+        service->setProperty("DriverAvailableSize", static_cast<uint64_t>(activeABI->driverAvailableSize), 32);
+        service->setProperty("FilterMonitorEvents", static_cast<uint64_t>(activeABI->filterMonitorEvents), 32);
+    }
 }
 
 }

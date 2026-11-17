@@ -306,6 +306,18 @@ IOReturn BCM80211UserClient::runCommand(IOExternalMethodArguments *arguments, si
     __atomic_store_n(&bcm::counters.lastRequest, static_cast<uint32_t>(request), __ATOMIC_RELAXED);
     __atomic_store_n(&bcm::counters.lastRequestKind, static_cast<uint32_t>(endpoint.kind), __ATOMIC_RELAXED);
     __atomic_store_n(&bcm::counters.lastRequestSet, set ? 1u : 0u, __ATOMIC_RELAXED);
+    /* 11-18 · Patch A request-flow counters. They only observe the request that is already about to
+       be dispatched; no branch below reads them, so command semantics are unchanged. */
+    if (set && request == bcm::ScanRequest)
+        __atomic_fetch_add(&bcm::counters.scanRequests, 1ULL, __ATOMIC_RELAXED);
+    if (set && request == bcm::ScanMultipleRequest)
+        __atomic_fetch_add(&bcm::counters.scanMultipleRequests, 1ULL, __ATOMIC_RELAXED);
+    if (get && request == bcm::ScanResultRequest)
+        __atomic_fetch_add(&bcm::counters.scanResultRequests, 1ULL, __ATOMIC_RELAXED);
+    if (get && request == bcm::CurrentNetworkRequest)
+        __atomic_fetch_add(&bcm::counters.currentNetworkRequests, 1ULL, __ATOMIC_RELAXED);
+    if (static_cast<uint32_t>(request) > bcm::LegacyHandlerTableCapacity)
+        __atomic_fetch_add(&bcm::counters.superRangeRequests, 1ULL, __ATOMIC_RELAXED);
     const uint32_t historySlot = __atomic_fetch_add(&bcm::counters.requestHistoryNext, 1u, __ATOMIC_RELAXED) & 15u;
     __atomic_store_n(&bcm::counters.requestHistory[historySlot], static_cast<uint32_t>(request), __ATOMIC_RELAXED);
     __atomic_store_n(&bcm::counters.requestHistoryFlags[historySlot],
@@ -465,6 +477,13 @@ IOReturn BCM80211UserClient::runCommand(IOExternalMethodArguments *arguments, si
         }
     }
 done:
+    /* 11-18 · 0x66 is the payload's "not recognized" (also used as the Set dispatcher's return).
+       Record which request produced it; the result itself is still returned unchanged. */
+    if (static_cast<uint32_t>(result) == 0x66U) {
+        __atomic_fetch_add(&bcm::counters.unsupportedRequests, 1ULL, __ATOMIC_RELAXED);
+        __atomic_store_n(&bcm::counters.lastUnsupportedRequest,
+                         static_cast<uint32_t>(request), __ATOMIC_RELAXED);
+    }
     if (probeRequest) {
         DBGLOG("probe", "%s req=%u result=0x%08x out=%02x %02x %02x %02x %02x %02x %02x %02x",
                endpoint.name, request, static_cast<unsigned>(result),
