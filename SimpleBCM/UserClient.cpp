@@ -448,6 +448,17 @@ done:
             memcpy(&v, shadow + w * 4, sizeof(v));
             __atomic_store_n(&bcm::counters.scanSnapshot[w], v, __ATOMIC_RELAXED);
         }
+        const uint32_t want = bcm::counters.associateSsidLength;
+        if (want && want <= 32 && bcm::associateSsidBuffer && bcm::currentNetworkBuffer) {
+            const uint8_t *needle = bcm::associateSsidBuffer;
+            for (size_t off = 0; off + want <= bcm::LegacyScanResultSize; ++off) {
+                if (memcmp(shadow + off, needle, want))
+                    continue;
+                memcpy(bcm::currentNetworkBuffer, shadow, bcm::LegacyScanResultSize);
+                __atomic_store_n(&bcm::counters.currentNetworkValid, 1u, __ATOMIC_RELAXED);
+                break;
+            }
+        }
     }
     if (associate && result == kIOReturnSuccess) {
         for (unsigned w = 0; w < 16; ++w) {

@@ -94,11 +94,10 @@ struct Counters {
        successful scan result and of the last associate request so the layout can be read back from ioreg. */
     uint32_t scanSnapshot[32];
     uint32_t assocSnapshot[16];
-    /* 11-17 · material for GET CURRENT_NETWORK (103). 27 answers it with the same 0x8E8 record as a scan result,
-       and the Tahoe payload's handler is a stub, so build the record here: remember the SSID from the last
-       set+20 and the scan result whose bytes contain it. */
-    uint8_t currentNetwork[1164];
-    uint8_t associateSsid[32];
+    /* 11-17/18 · material for GET CURRENT_NETWORK (103). The buffers are heap-allocated in
+       Bridge::initialize: growing Counters' static BSS by ~1.2 KB made the kext hang at
+       ExitBootServices on 27.2 (bisect B: baseline + arrays only reproduces it), so the
+       data lives in IOMalloc'd memory instead. */
     uint32_t associateSsidLength;
     uint32_t currentNetworkValid;
     uint32_t lastAssociateLength;
@@ -131,6 +130,9 @@ struct Counters {
 };
 
 extern Counters counters;
+/* heap-allocated in Bridge::initialize (see Counters comment) */
+extern uint8_t *currentNetworkBuffer;
+extern uint8_t *associateSsidBuffer;
 
 class Bridge {
 public:

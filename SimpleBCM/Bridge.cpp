@@ -34,6 +34,9 @@ static uint32_t state;
 static bool awdlCoexistenceEnabled;
 static bool tahoeDMAEnabled;
 static bool goldenGateAssociateBoot;
+static bool currentNetworkBoot;
+uint8_t *currentNetworkBuffer;
+uint8_t *associateSsidBuffer;
 static IOService *observedController;
 static const char *failure = "WaitingForDependencies";
 static IOSimpleLock *contextLock;
@@ -112,6 +115,10 @@ bool Bridge::ready() {
 
 bool Bridge::goldenGateAssociateEnabled() {
     return goldenGateAssociateBoot;
+}
+
+bool Bridge::currentNetworkEnabled() {
+    return currentNetworkBoot;
 }
 
 static int countSetAssociate(IOService *self, OSObject *object, void *data) {
@@ -801,6 +808,15 @@ void Bridge::initialize() {
        4-byte gap. Without this boot arg goldengate requests are counted and rejected without
        touching the buffer. */
     goldenGateAssociateBoot = PE_parse_boot_argn("-sbcmggassoc", &value, sizeof(value));
+    currentNetworkBoot = PE_parse_boot_argn("-sbcm103", &value, sizeof(value));
+    if (!currentNetworkBuffer)
+        currentNetworkBuffer = static_cast<uint8_t *>(IOMalloc(bcm::LegacyScanResultSize));
+    if (!associateSsidBuffer)
+        associateSsidBuffer = static_cast<uint8_t *>(IOMalloc(32));
+    if (currentNetworkBuffer)
+        bzero(currentNetworkBuffer, bcm::LegacyScanResultSize);
+    if (associateSsidBuffer)
+        bzero(associateSsidBuffer, 32);
     activeABI = userABIForKernel(static_cast<uint32_t>(getKernelVersion()));
     if (!activeABI) {
         reject("UnsupportedKernel");
