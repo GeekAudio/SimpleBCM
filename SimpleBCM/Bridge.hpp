@@ -60,6 +60,17 @@ struct Counters {
     uint32_t lastRequest;
     uint32_t lastResult;
     uint32_t lastAssociationResult;
+    /* 11-17 · the values the ENXIO at the top of Bridge::command was taken on. airportd's ASSOCIATE(20) never
+       reached the embedded driver (AssociationRequests stays 0) while SCAN(10) did: either the interface or the
+       controller was judged inactive at that moment, or the request never came. Published, not logged: IOLog
+       does not reach the unified log on this system and dmesg is empty. */
+    uint32_t lastRequestKind;
+    uint32_t lastRequestSet;
+    uint32_t lastRejectType;
+    uint32_t lastRejectKind;
+    uint64_t rejects;
+    uint64_t rejectInterfaceInactive;
+    uint64_t rejectControllerInactive;
 };
 
 extern Counters counters;

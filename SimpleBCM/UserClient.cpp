@@ -298,6 +298,8 @@ IOReturn BCM80211UserClient::runCommand(IOExternalMethodArguments *arguments, si
     }
     __atomic_fetch_add(&bcm::counters.commands, 1ULL, __ATOMIC_RELAXED);
     __atomic_store_n(&bcm::counters.lastRequest, static_cast<uint32_t>(request), __ATOMIC_RELAXED);
+    __atomic_store_n(&bcm::counters.lastRequestKind, static_cast<uint32_t>(endpoint.kind), __ATOMIC_RELAXED);
+    __atomic_store_n(&bcm::counters.lastRequestSet, set ? 1u : 0u, __ATOMIC_RELAXED);
     if (associate)
         __atomic_fetch_add(&bcm::counters.associationRequests, 1ULL, __ATOMIC_RELAXED);
     if ((!set && !get) || header->length > capacity ||

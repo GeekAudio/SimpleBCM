@@ -536,8 +536,18 @@ static IOReturn postInfra(IOService *self, uint32_t message, void *payload, size
 }
 
 int Bridge::command(const Endpoint &endpoint, bool set, LegacyRequest &request, void *shadow, size_t size) {
-    if (!ready() || endpoint.interface->isInactive() || endpoint.controller->isInactive())
+    const bool ifInactive = endpoint.interface->isInactive();
+    const bool ctrlInactive = endpoint.controller->isInactive();
+    if (!ready() || ifInactive || ctrlInactive) {
+        __atomic_store_n(&counters.lastRejectType, static_cast<uint32_t>(request.request.type), __ATOMIC_RELAXED);
+        __atomic_store_n(&counters.lastRejectKind, static_cast<uint32_t>(endpoint.kind), __ATOMIC_RELAXED);
+        __atomic_fetch_add(&counters.rejects, 1ULL, __ATOMIC_RELAXED);
+        if (ifInactive)
+            __atomic_fetch_add(&counters.rejectInterfaceInactive, 1ULL, __ATOMIC_RELAXED);
+        if (ctrlInactive)
+            __atomic_fetch_add(&counters.rejectControllerInactive, 1ULL, __ATOMIC_RELAXED);
         return ENXIO;
+    }
     CopyContext context {current_thread(), reinterpret_cast<uintptr_t>(shadow), size, nullptr};
     IOSimpleLockLock(contextLock);
     context.next = contexts;
@@ -816,6 +826,9 @@ void Bridge::publish(IOService *service) {
         {"AssociationEventConversions", &counters.associationEventConversions},
         {"AssociationEventReadErrors", &counters.associationEventReadErrors},
         {"PowerAvailabilityEvents", &counters.powerAvailabilityEvents},
+        {"Rejects", &counters.rejects},
+        {"RejectInterfaceInactive", &counters.rejectInterfaceInactive},
+        {"RejectControllerInactive", &counters.rejectControllerInactive},
     };
     for (const auto &metric : metrics)
         service->setProperty(metric.name, __atomic_load_n(metric.value, __ATOMIC_RELAXED), 64);
@@ -825,6 +838,10 @@ void Bridge::publish(IOService *service) {
         service->setProperty(name, __atomic_load_n(&counters.selectors[i], __ATOMIC_RELAXED), 64);
     }
     service->setProperty("LastRequest", __atomic_load_n(&counters.lastRequest, __ATOMIC_RELAXED), 32);
+    service->setProperty("LastRequestKind", __atomic_load_n(&counters.lastRequestKind, __ATOMIC_RELAXED), 32);
+    service->setProperty("LastRequestSet", __atomic_load_n(&counters.lastRequestSet, __ATOMIC_RELAXED), 32);
+    service->setProperty("LastRejectType", __atomic_load_n(&counters.lastRejectType, __ATOMIC_RELAXED), 32);
+    service->setProperty("LastRejectKind", __atomic_load_n(&counters.lastRejectKind, __ATOMIC_RELAXED), 32);
     service->setProperty("LastResult", __atomic_load_n(&counters.lastResult, __ATOMIC_RELAXED), 32);
     service->setProperty("LastAssociationResult", __atomic_load_n(&counters.lastAssociationResult, __ATOMIC_RELAXED), 32);
     service->setProperty("LastAssociationEventLength", __atomic_load_n(&counters.lastAssociationEventLength, __ATOMIC_RELAXED), 32);
