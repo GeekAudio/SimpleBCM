@@ -138,3 +138,12 @@ request 103 length 2280 output 2280 result 0x00000066   (46 次)
 因此在 `UserClient::runCommand` 增加 DEBUG 日志，记录 `request 11/69/103/207/15`
 的 command、length、outputSize、header length 和前 8 字节，用于确定 27 的扫描
 发起/结果读取路径与结构。日志仅在 Debug 构建（`DEBUG=1`）输出。
+
+## 修复 5：probe 扩展（含 10/86 与返回值）
+
+首轮 probe 显示所有请求都是 Get，没有 `10/86`（SCAN_REQ / SCAN_REQ_MULTIPLE），
+说明扫描从未发起。probe 条件已加入 10/86，并在 `done:` 处额外打印
+`result` 与输出 buffer 前 8 字节，用来确认：
+- `req=15`（OP_MODE）返回的模式值；
+- `req=103`（CURRENT_NETWORK）和 `req=11`（SCAN_RESULT）的错误码；
+- 是否出现 `req=10/86` 的 Set 扫描请求。

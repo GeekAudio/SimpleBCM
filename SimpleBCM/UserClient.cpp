@@ -287,7 +287,9 @@ IOReturn BCM80211UserClient::runCommand(IOExternalMethodArguments *arguments, si
     const bool associate = set && request == bcm::AssociateRequest;
     const bool roamProfiles = request == bcm::RoamProfileRequest && abi.roamProfileSize == bcm::NativeRoamProfileSize;
     bool outputPrepared = false;
-    if (request == 11 || request == 69 || request == 103 || request == 207 || request == 15) {
+    const bool probeRequest = request == 10 || request == 86 || request == 11 ||
+        request == 69 || request == 103 || request == 207 || request == 15;
+    if (probeRequest) {
         DBGLOG("probe", "%s req=%u cmd=0x%08x len=%u out=%lu hdr=%u data=%02x %02x %02x %02x %02x %02x %02x %02x",
                endpoint.name, request, header->command, legacy.request.length,
                static_cast<unsigned long>(outputSize), header->length,
@@ -384,6 +386,12 @@ IOReturn BCM80211UserClient::runCommand(IOExternalMethodArguments *arguments, si
         }
     }
 done:
+    if (probeRequest) {
+        DBGLOG("probe", "%s req=%u result=0x%08x out=%02x %02x %02x %02x %02x %02x %02x %02x",
+               endpoint.name, request, static_cast<unsigned>(result),
+               shadow[0], shadow[1], shadow[2], shadow[3],
+               shadow[4], shadow[5], shadow[6], shadow[7]);
+    }
     if (outputPrepared) {
         const auto status = arguments->structureOutputDescriptor->complete(kIODirectionIn);
         if (result == kIOReturnSuccess)
