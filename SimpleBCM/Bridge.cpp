@@ -776,6 +776,7 @@ void Bridge::patchImage(KernelPatcher &patcher, size_t index, mach_vm_address_t 
             /* The symbol metadata does not always carry this table, so fall back to its offset inside the very
                payload the guards above already validated (payload0: table 0x14a140, count 0xf8b00 == 417). */
             constexpr uintptr_t tableOffset = 0x14a140;
+            constexpr uintptr_t copyInOffset = 0x91d6c;   /* IO80211Controller::copyIn(unsigned long long, void*, unsigned long) */
             constexpr uintptr_t countOffset = 0xf8b00;
             constexpr uint32_t expectedCount = 417;
             uintptr_t table = patcher.solveSymbol(index, "_gGetHandlerTable");
@@ -785,10 +786,15 @@ void Bridge::patchImage(KernelPatcher &patcher, size_t index, mach_vm_address_t 
             uint32_t count = 0;
             if (countOffset + sizeof(count) <= size)
                 memcpy(&count, reinterpret_cast<const void *>(address + countOffset), sizeof(count));
-            if (!table && count == expectedCount &&
-                tableOffset + expectedCount * sizeof(uintptr_t) <= size) {
-                table = address + tableOffset;
-                __atomic_store_n(&counters.legacy103Fallback, 1u, __ATOMIC_RELAXED);
+            if (count == expectedCount) {
+                if (!table && tableOffset + expectedCount * sizeof(uintptr_t) <= size) {
+                    table = address + tableOffset;
+                    __atomic_store_n(&counters.legacy103Fallback, 1u, __ATOMIC_RELAXED);
+                }
+                if (!copyIn && copyInOffset + 0x40 <= size) {
+                    copyIn = address + copyInOffset;
+                    __atomic_store_n(&counters.legacy103Fallback, 1u, __ATOMIC_RELAXED);
+                }
             }
             if (table && copyIn) {
                 auto slot = reinterpret_cast<uintptr_t *>(table + (103 - 1) * sizeof(uintptr_t));
