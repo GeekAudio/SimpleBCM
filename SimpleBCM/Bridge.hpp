@@ -139,6 +139,7 @@ public:
     static void enableNativeSkywalk();
     static bool ready();
     static bool goldenGateAssociateEnabled();
+    static bool currentNetworkEnabled();
     static const UserABI &abi();
     static uint64_t copyAvailability(const Endpoint &endpoint, AvailabilityEvent &event);
     static int refreshAvailability(const Endpoint &endpoint);

@@ -395,6 +395,7 @@ IOReturn BCM80211UserClient::runCommand(IOExternalMethodArguments *arguments, si
         IOLockUnlock(eventLock);
         result = kIOReturnSuccess;
     } else if (get && request == 103 && outputSize == abi.scanResultSize &&
+               bcm::Bridge::currentNetworkEnabled() &&
                __atomic_load_n(&bcm::counters.currentNetworkValid, __ATOMIC_RELAXED)) {
         /* 27 asks for the current network with the same record it uses for a scan result (0x8E8, IE length at
            0x8A). Answer from the matched scan result instead of the payload's stub handler. */
