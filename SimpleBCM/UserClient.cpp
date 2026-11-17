@@ -311,7 +311,7 @@ IOReturn BCM80211UserClient::runCommand(IOExternalMethodArguments *arguments, si
     if (set && request == bcm::ScanRequest)
         __atomic_fetch_add(&bcm::counters.scanRequests, 1ULL, __ATOMIC_RELAXED);
     if (set && request == bcm::ScanRequest) {
-        __atomic_store_n(&bcm::counters.lastScanRequestLength, header->length, __ATOMIC_RELAXED);
+        __atomic_store_n(&bcm::counters.lastScanRequestLength, static_cast<uint64_t>(header->length), __ATOMIC_RELAXED);
         /* 27 sends 0x1598 while the legacy payload only consumes 0x1550; snapshot the tail so we can tell
            whether anything past the legacy buffer carries state worth translating. */
         for (unsigned w = 0; w < 8; ++w) {

@@ -116,7 +116,7 @@ struct Counters {
     uint32_t legacy103Patched;
     uint32_t legacy103Fallback;
     uint32_t scanResultCacheValid;
-    uint32_t lastScanRequestLength;
+    uint64_t lastScanRequestLength;
     uint32_t scanTailSnapshot[8];
     uint32_t lastAssociateLength;
     uint32_t lastGoldenGateSample[GoldenGateSampleWords];
