@@ -135,6 +135,9 @@ extern Counters counters;
 /* heap-allocated in Bridge::initialize (see Counters comment) */
 extern uint8_t *currentNetworkBuffer;
 extern uint8_t *associateSsidBuffer;
+/* 27's CURRENT_NETWORK record is the same 0x8E8 layout as a scan result; keep a full-size buffer so the
+   legacy ioctl path can be answered with one copy. */
+constexpr size_t CurrentNetworkCapacity = 0x8E8;
 
 class Bridge {
 public:

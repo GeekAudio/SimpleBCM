@@ -480,6 +480,7 @@ done:
             for (size_t off = 0; off + want <= bcm::LegacyScanResultSize; ++off) {
                 if (memcmp(shadow + off, needle, want))
                     continue;
+                bzero(bcm::currentNetworkBuffer, bcm::CurrentNetworkCapacity);
                 memcpy(bcm::currentNetworkBuffer, shadow, bcm::LegacyScanResultSize);
                 __atomic_store_n(&bcm::counters.currentNetworkValid, 1u, __ATOMIC_RELAXED);
                 break;

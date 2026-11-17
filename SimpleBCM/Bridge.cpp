@@ -37,6 +37,42 @@ static bool goldenGateAssociateBoot;
 static bool currentNetworkBoot;
 uint8_t *currentNetworkBuffer;
 uint8_t *associateSsidBuffer;
+
+namespace {
+using LegacyCopyIn = int (*)(void *, uintptr_t, const void *, size_t);
+LegacyCopyIn legacyCopyIn = nullptr;
+uintptr_t legacyCurrentNetworkOriginal = 0;
+}
+
+/* 11-18 · The 27 kernel-side IO80211 answers GET CURRENT_NETWORK through the legacy get table, whose 103 slot in
+   the Tahoe payload is a three-instruction stub returning 0x66; the user-client path is a second, separate
+   route. Replace that slot with this handler so both routes return the record we captured from the
+   association and the matching scan result. Anything unexpected falls back to the stub's answer. */
+extern "C" int legacyGetCurrentNetwork(void *controller, void *interface, void *virtualInterface,
+                                       void *infraInterface, void *request, bool isSet) {
+    (void)interface; (void)virtualInterface; (void)infraInterface; (void)isSet;
+    auto req = static_cast<uint8_t *>(request);
+    if (!controller || !req || !legacyCopyIn || !currentNetworkBuffer)
+        return 0x66;
+    uint32_t type = 0, length = 0;
+    uintptr_t data = 0;
+    memcpy(&type, req + 0x10, sizeof(type));
+    memcpy(&length, req + 0x18, sizeof(length));
+    memcpy(&data, req + 0x20, sizeof(data));
+    if (type != 103 || !data || !Bridge::currentNetworkEnabled())
+        return 0x66;
+    if (!__atomic_load_n(&counters.currentNetworkValid, __ATOMIC_RELAXED))
+        return 0x66;
+    size_t copy = length ? length : CurrentNetworkCapacity;
+    if (copy > CurrentNetworkCapacity)
+        copy = CurrentNetworkCapacity;
+    if (legacyCopyIn(controller, data, currentNetworkBuffer, copy))
+        return 0x66;
+    const uint32_t written = static_cast<uint32_t>(copy);
+    memcpy(req + 0x18, &written, sizeof(written));
+    __atomic_fetch_add(&counters.c103Hits, 1ULL, __ATOMIC_RELAXED);
+    return 0;
+}
 static IOService *observedController;
 static const char *failure = "WaitingForDependencies";
 static IOSimpleLock *contextLock;
@@ -733,6 +769,23 @@ void Bridge::patchImage(KernelPatcher &patcher, size_t index, mach_vm_address_t 
             reject("LegacySymbolsMissing");
             return;
         }
+        /* 11-18 · legacy get table slot for type 103 (index 102): route the kernel-side IO80211 queries through
+           our handler. The table lives in the payload's __DATA,__const, which is still writable here — the kmod
+           is only protected after Bridge::prepareImage returns. */
+        {
+            const uintptr_t table = patcher.solveSymbol(index, "_gGetHandlerTable");
+            const uintptr_t copyIn = patcher.solveSymbol(index, "__ZN17IO80211Controller6copyInEyPvm");
+            if (table && copyIn) {
+                auto slot = reinterpret_cast<uintptr_t *>(table + (103 - 1) * sizeof(uintptr_t));
+                legacyCurrentNetworkOriginal = *slot;
+                legacyCopyIn = reinterpret_cast<LegacyCopyIn>(copyIn);
+                *slot = reinterpret_cast<uintptr_t>(&legacyGetCurrentNetwork);
+                SYSLOG("bridge", "legacy get 103 routed (was %p)", reinterpret_cast<void *>(legacyCurrentNetworkOriginal));
+            } else {
+                DBGLOG("bridge", "legacy get 103 not routed (table=%p copyIn=%p)", reinterpret_cast<void *>(table),
+                       reinterpret_cast<void *>(copyIn));
+            }
+        }
         KernelPatcher::RouteRequest routes[] = {
             {"__ZN16IO80211Interface13newUserClientEP4taskPvjP12OSDictionaryPP12IOUserClient", newClassicClient, originalClassicClient},
             {"__ZN23IO80211VirtualInterface13newUserClientEP4taskPvjP12OSDictionaryPP12IOUserClient", newVirtualClient, originalVirtualClient},
@@ -810,11 +863,11 @@ void Bridge::initialize() {
     goldenGateAssociateBoot = PE_parse_boot_argn("-sbcmggassoc", &value, sizeof(value));
     currentNetworkBoot = PE_parse_boot_argn("-sbcm103", &value, sizeof(value));
     if (!currentNetworkBuffer)
-        currentNetworkBuffer = static_cast<uint8_t *>(IOMalloc(bcm::LegacyScanResultSize));
+        currentNetworkBuffer = static_cast<uint8_t *>(IOMalloc(CurrentNetworkCapacity));
     if (!associateSsidBuffer)
         associateSsidBuffer = static_cast<uint8_t *>(IOMalloc(32));
     if (currentNetworkBuffer)
-        bzero(currentNetworkBuffer, bcm::LegacyScanResultSize);
+        bzero(currentNetworkBuffer, CurrentNetworkCapacity);
     if (associateSsidBuffer)
         bzero(associateSsidBuffer, 32);
     activeABI = userABIForKernel(static_cast<uint32_t>(getKernelVersion()));
