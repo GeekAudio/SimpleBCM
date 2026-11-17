@@ -77,6 +77,10 @@ constexpr size_t NativeRoamBandSize = 0x80;
 constexpr size_t LegacyRoamBandSize = 0x7C;
 constexpr size_t LegacyScanResultSize = 0x48C;
 constexpr size_t ScanIELengthOffset = 0x8A;
+constexpr size_t ScanSsidLengthOffset = 0x60;
+constexpr size_t ScanFlagsOffset = 0x88;
+constexpr uint8_t ScanHiddenFlag = 0x02;
+constexpr uint32_t DisassociateRequest = 22;
 constexpr size_t ScanIEOffset = 0x8C;
 constexpr size_t LegacyScanIECapacity = 0x400;
 
@@ -236,6 +240,12 @@ inline bool expandScanResult(Request &request, uint8_t *buffer, size_t capacity,
         return false;
     for (size_t offset = LegacyScanResultSize; offset < abi.scanResultSize; ++offset)
         buffer[offset] = 0;
+    /* 11-18 · 27 decides "hidden" from scan-result +0x88 bit 1 (IO80211BSSBeacon::isHidden path). The legacy
+       0x48C layout leaves that byte to the driver and payload0 poisons it with 0xAA, so 27 saw a dirty bit and
+       stamped real networks as hidden ("Default <ssid> as a hidden network based on 'possiblyHidden'"), which
+       the settings App then persists as a hidden profile. When the record carries an SSID, clear only that bit. */
+    if (abi.kernel >= 27 && buffer[ScanSsidLengthOffset] != 0)
+        buffer[ScanFlagsOffset] &= static_cast<uint8_t>(~ScanHiddenFlag);
     request.length = static_cast<uint32_t>(abi.scanResultSize);
     return true;
 }

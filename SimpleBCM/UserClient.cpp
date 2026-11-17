@@ -332,12 +332,20 @@ IOReturn BCM80211UserClient::runCommand(IOExternalMethodArguments *arguments, si
             memcpy(bcm::associateSsidBuffer, shadow + 0x14, length);
             __atomic_store_n(&bcm::counters.associateSsidLength, length, __ATOMIC_RELAXED);
         }
+        /* a new join starts a new current-network record; drop the previous one until a scan result matches */
+        __atomic_store_n(&bcm::counters.currentNetworkValid, 0u, __ATOMIC_RELAXED);
         __atomic_fetch_add(&bcm::counters.associationRequests, 1ULL, __ATOMIC_RELAXED);
         __atomic_store_n(&bcm::counters.lastAssociateLength, header->length, __ATOMIC_RELAXED);
         if (goldenGateAssociate)
             __atomic_fetch_add(&bcm::counters.goldenGateAssociateRequests, 1ULL, __ATOMIC_RELAXED);
         if (header->length != abi.associateSize)
             __atomic_fetch_add(&bcm::counters.associateLengthMismatch, 1ULL, __ATOMIC_RELAXED);
+    }
+    if (set && request == bcm::DisassociateRequest) {
+        /* leaving the network invalidates the cached record; the 103 fallback must not keep answering with it */
+        __atomic_store_n(&bcm::counters.currentNetworkValid, 0u, __ATOMIC_RELAXED);
+        if (bcm::currentNetworkBuffer)
+            bzero(bcm::currentNetworkBuffer, bcm::CurrentNetworkCapacity);
     }
     if ((!set && !get) || header->length > capacity ||
         strncmp(legacy.request.interfaceName, endpoint.name, sizeof(endpoint.name)))
