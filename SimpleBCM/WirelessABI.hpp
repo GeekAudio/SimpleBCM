@@ -445,7 +445,7 @@ inline bool expandRoamBand(const Request &request, const uint8_t *buffer, size_t
 
 struct EventFilter {
     uint8_t all;
-    uint8_t bitmap[31];
+    uint8_t bitmap[32];
 
     bool accepts(uint32_t event) const {
         return all || (event && event <= sizeof(bitmap) * 8 &&
@@ -529,7 +529,7 @@ static_assert(offsetof(Request, data) == 0x20, "Request pointer ABI");
 static_assert(sizeof(LegacyRequest) == 0x30, "Legacy request ABI");
 static_assert(sizeof(CommandHeader) + CommandCapacity + sizeof(Request) == 0x3C30, "Command ABI");
 static_assert(sizeof(CommandHeader) + LargeCommandCapacity + sizeof(Request) == 0x3C030, "Large command ABI");
-static_assert(sizeof(EventFilter) == 0x20, "Event filter ABI");
+static_assert(sizeof(EventFilter) == 0x21, "Event filter ABI (all + 32-byte bitmap, 27 setFILTER_MONITOR_EVENTS)");
 static_assert(sizeof(EventState) == 0xC, "Event state ABI");
 static_assert(sizeof(EventHeader) == 0x30, "Event header ABI");
 static_assert(offsetof(EventHeader, length) == 0x18, "Event length ABI");

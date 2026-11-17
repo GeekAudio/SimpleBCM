@@ -411,10 +411,16 @@ IOReturn BCM80211UserClient::runCommand(IOExternalMethodArguments *arguments, si
     if (associate && !goldenGateAssociate && !bcm::prepareAssociate(legacy.request, shadow, capacity, abi))
         goto done;
     if (set && abi.filterMonitorEvents && static_cast<uint32_t>(request) == abi.filterMonitorEvents) {
-        if (legacy.request.length != sizeof(bcm::EventFilter) || header->length < sizeof(bcm::EventFilter))
+        /* 27 sends 0x21 (all + 32-byte bitmap); the Tahoe-era shape was 0x20 (all + 31). Accept both and
+           clear the missing byte, otherwise the request fails the length check and the client filter is
+           silently ignored. */
+        const uint32_t filterLength = legacy.request.length;
+        if ((filterLength != sizeof(bcm::EventFilter) && filterLength != sizeof(bcm::EventFilter) - 1) ||
+            header->length < filterLength)
             goto done;
         IOLockLock(eventLock);
-        memcpy(&filter, shadow, sizeof(filter));
+        memset(&filter, 0, sizeof(filter));
+        memcpy(&filter, shadow, filterLength);
         IOLockUnlock(eventLock);
         result = kIOReturnSuccess;
     } else if (get && request == 103) {
@@ -502,6 +508,10 @@ done:
             memcpy(&v, shadow + w * 4, sizeof(v));
             __atomic_store_n(&bcm::counters.scanSnapshot[w], v, __ATOMIC_RELAXED);
         }
+        if (bcm::scanResultCache) {
+            memcpy(bcm::scanResultCache, shadow, bcm::LegacyScanResultSize);
+            __atomic_store_n(&bcm::counters.scanResultCacheValid, 1u, __ATOMIC_RELAXED);
+        }
         const uint32_t want = bcm::counters.associateSsidLength;
         if (want && want <= 32 && bcm::associateSsidBuffer && bcm::currentNetworkBuffer) {
             const uint8_t *needle = bcm::associateSsidBuffer;
@@ -510,6 +520,25 @@ done:
                     continue;
                 bzero(bcm::currentNetworkBuffer, bcm::CurrentNetworkCapacity);
                 memcpy(bcm::currentNetworkBuffer, shadow, bcm::LegacyScanResultSize);
+                __atomic_store_n(&bcm::counters.currentNetworkValid, 1u, __ATOMIC_RELAXED);
+                break;
+            }
+        }
+    }
+    if (associate && result == kIOReturnSuccess &&
+        !__atomic_load_n(&bcm::counters.currentNetworkValid, __ATOMIC_RELAXED) &&
+        bcm::scanResultCache && bcm::associateSsidBuffer && bcm::currentNetworkBuffer &&
+        __atomic_load_n(&bcm::counters.scanResultCacheValid, __ATOMIC_RELAXED)) {
+        /* 27 asks for CURRENT_NETWORK right after a join; fill it from the cached scan record so the first
+           query does not fall into the 0x66 → -3903 window while the next scan is still in flight. */
+        const uint32_t want = __atomic_load_n(&bcm::counters.associateSsidLength, __ATOMIC_RELAXED);
+        if (want && want <= 32) {
+            const uint8_t *needle = bcm::associateSsidBuffer;
+            for (size_t off = 0; off + want <= bcm::LegacyScanResultSize; ++off) {
+                if (memcmp(bcm::scanResultCache + off, needle, want))
+                    continue;
+                bzero(bcm::currentNetworkBuffer, bcm::CurrentNetworkCapacity);
+                memcpy(bcm::currentNetworkBuffer, bcm::scanResultCache, bcm::LegacyScanResultSize);
                 __atomic_store_n(&bcm::counters.currentNetworkValid, 1u, __ATOMIC_RELAXED);
                 break;
             }

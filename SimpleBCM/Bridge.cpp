@@ -37,6 +37,7 @@ static bool goldenGateAssociateBoot;
 static bool currentNetworkBoot;
 uint8_t *currentNetworkBuffer;
 uint8_t *associateSsidBuffer;
+uint8_t *scanResultCache;
 
 namespace {
 using LegacyCopyIn = int (*)(void *, uintptr_t, const void *, size_t);
@@ -892,6 +893,10 @@ void Bridge::initialize() {
         bzero(currentNetworkBuffer, CurrentNetworkCapacity);
     if (associateSsidBuffer)
         bzero(associateSsidBuffer, 32);
+    if (!scanResultCache)
+        scanResultCache = static_cast<uint8_t *>(IOMalloc(bcm::LegacyScanResultSize));
+    if (scanResultCache)
+        bzero(scanResultCache, bcm::LegacyScanResultSize);
     activeABI = userABIForKernel(static_cast<uint32_t>(getKernelVersion()));
     if (!activeABI) {
         reject("UnsupportedKernel");

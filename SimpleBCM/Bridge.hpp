@@ -115,6 +115,7 @@ struct Counters {
     uint32_t c103Hits;
     uint32_t legacy103Patched;
     uint32_t legacy103Fallback;
+    uint32_t scanResultCacheValid;
     uint32_t lastAssociateLength;
     uint32_t lastGoldenGateSample[GoldenGateSampleWords];
     uint32_t lastGoldenGateBssidCount;
@@ -148,6 +149,8 @@ extern Counters counters;
 /* heap-allocated in Bridge::initialize (see Counters comment) */
 extern uint8_t *currentNetworkBuffer;
 extern uint8_t *associateSsidBuffer;
+/* Last legacy scan record, kept so a join can populate CURRENT_NETWORK without waiting for the next scan. */
+extern uint8_t *scanResultCache;
 /* 27's CURRENT_NETWORK record is the same 0x8E8 layout as a scan result; keep a full-size buffer so the
    legacy ioctl path can be answered with one copy. */
 constexpr size_t CurrentNetworkCapacity = 0x8E8;
