@@ -100,6 +100,8 @@ struct Counters {
        data lives in IOMalloc'd memory instead. */
     uint32_t associateSsidLength;
     uint32_t currentNetworkValid;
+    uint32_t last103OutputSize;
+    uint32_t c103Hits;
     uint32_t lastAssociateLength;
     uint32_t lastGoldenGateSample[GoldenGateSampleWords];
     uint32_t lastGoldenGateBssidCount;

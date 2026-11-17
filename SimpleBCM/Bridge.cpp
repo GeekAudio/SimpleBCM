@@ -909,6 +909,10 @@ void Bridge::publish(IOService *service) {
     service->setProperty("LastRejectType", __atomic_load_n(&counters.lastRejectType, __ATOMIC_RELAXED), 32);
     service->setProperty("LastRejectKind", __atomic_load_n(&counters.lastRejectKind, __ATOMIC_RELAXED), 32);
     service->setProperty("ReqCount", __atomic_load_n(&counters.requestHistoryCount, __ATOMIC_RELAXED), 32);
+    service->setProperty("AssocSsidLength", __atomic_load_n(&counters.associateSsidLength, __ATOMIC_RELAXED), 32);
+    service->setProperty("CurrentNetworkValid", __atomic_load_n(&counters.currentNetworkValid, __ATOMIC_RELAXED), 32);
+    service->setProperty("Last103OutputSize", __atomic_load_n(&counters.last103OutputSize, __ATOMIC_RELAXED), 32);
+    service->setProperty("C103Hits", __atomic_load_n(&counters.c103Hits, __ATOMIC_RELAXED), 32);
     for (unsigned i = 0; i < 32; ++i) {
         char name[24];
         snprintf(name, sizeof(name), "ScanW%u", i);
