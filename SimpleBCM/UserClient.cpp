@@ -321,6 +321,15 @@ IOReturn BCM80211UserClient::runCommand(IOExternalMethodArguments *arguments, si
         __atomic_store_n(&bcm::counters.lastSetLength, header->length, __ATOMIC_RELAXED);
     }
     if (associate) {
+        /* 27 lays the SSID at 0x10 of its 0x290 associate buffer; keep it before prepareAssociate rewrites the
+           buffer, then match it against scan results to build the current-network record. */
+        if (header->length >= 0x30) {
+            memcpy(bcm::counters.associateSsid, shadow + 0x10, sizeof(bcm::counters.associateSsid));
+            uint32_t length = 0;
+            while (length < sizeof(bcm::counters.associateSsid) && bcm::counters.associateSsid[length])
+                ++length;
+            __atomic_store_n(&bcm::counters.associateSsidLength, length, __ATOMIC_RELAXED);
+        }
         __atomic_fetch_add(&bcm::counters.associationRequests, 1ULL, __ATOMIC_RELAXED);
         __atomic_store_n(&bcm::counters.lastAssociateLength, header->length, __ATOMIC_RELAXED);
         if (goldenGateAssociate)
@@ -385,6 +394,14 @@ IOReturn BCM80211UserClient::runCommand(IOExternalMethodArguments *arguments, si
         memcpy(&filter, shadow, sizeof(filter));
         IOLockUnlock(eventLock);
         result = kIOReturnSuccess;
+    } else if (get && request == 103 && outputSize == abi.scanResultSize &&
+               __atomic_load_n(&bcm::counters.currentNetworkValid, __ATOMIC_RELAXED)) {
+        /* 27 asks for the current network with the same record it uses for a scan result (0x8E8, IE length at
+           0x8A). Answer from the matched scan result instead of the payload's stub handler. */
+        bzero(shadow, capacity);
+        memcpy(shadow, bcm::counters.currentNetwork, sizeof(bcm::counters.currentNetwork));
+        legacy.request.length = static_cast<uint32_t>(outputSize);
+        result = kIOReturnSuccess;
     } else if (roamProfiles) {
         result = runRoamProfiles(endpoint, set, legacy, shadow, capacity);
     } else {
@@ -443,6 +460,17 @@ done:
     }
     if (scanResult && result == kIOReturnSuccess) {
         __atomic_fetch_add(&bcm::counters.scanRecords, 1ULL, __ATOMIC_RELAXED);
+        const uint32_t want = bcm::counters.associateSsidLength;
+        if (want && want <= sizeof(bcm::counters.associateSsid)) {
+            const uint8_t *needle = bcm::counters.associateSsid;
+            for (size_t off = 0; off + want <= bcm::LegacyScanResultSize; ++off) {
+                if (memcmp(shadow + off, needle, want))
+                    continue;
+                memcpy(bcm::counters.currentNetwork, shadow, sizeof(bcm::counters.currentNetwork));
+                __atomic_store_n(&bcm::counters.currentNetworkValid, 1u, __ATOMIC_RELAXED);
+                break;
+            }
+        }
         for (unsigned w = 0; w < 32; ++w) {
             uint32_t v = 0;
             memcpy(&v, shadow + w * 4, sizeof(v));

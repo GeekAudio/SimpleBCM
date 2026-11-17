@@ -94,6 +94,13 @@ struct Counters {
        successful scan result and of the last associate request so the layout can be read back from ioreg. */
     uint32_t scanSnapshot[32];
     uint32_t assocSnapshot[16];
+    /* 11-17 · material for GET CURRENT_NETWORK (103). 27 answers it with the same 0x8E8 record as a scan result,
+       and the Tahoe payload's handler is a stub, so build the record here: remember the SSID from the last
+       set+20 and the scan result whose bytes contain it. */
+    uint8_t currentNetwork[1164];
+    uint8_t associateSsid[32];
+    uint32_t associateSsidLength;
+    uint32_t currentNetworkValid;
     uint32_t lastAssociateLength;
     uint32_t lastGoldenGateSample[GoldenGateSampleWords];
     uint32_t lastGoldenGateBssidCount;
