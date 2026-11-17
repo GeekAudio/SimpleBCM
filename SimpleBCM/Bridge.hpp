@@ -72,13 +72,49 @@ struct Counters {
     uint64_t rejectInterfaceInactive;
     uint64_t rejectControllerInactive;
     /* 11-17 · the last 16 commands in order: request, flags (bit0 set, bits8+ kind) and result. Published as
-       ReqHist0..15 / ReqHistN. One slot of history hid whether ASSOCIATE(20) was never sent or merely renamed
-       (the 27 set tables have slot 20 empty and slot 254 populated). */
+       ReqHist0..15 / ReqHistN. 27 keeps ASSOCIATE at set type 20 (table index 19); set type 254 is an empty
+       slot and type 255 is BTCOEX/UCM, so the earlier "slot 20 empty / slot 254 populated" hypothesis was a
+       0-based/1-based table-index confusion. The 16-slot window only covers a few seconds at the observed
+       command rate; the persistent counters below and the Set history are the authoritative view. */
     uint32_t requestHistory[16];
     uint32_t requestHistoryFlags[16];
     uint32_t requestHistoryResult[16];
     uint32_t requestHistoryNext;
     uint32_t requestHistoryCount;
+    /* 11-17 · association diagnostics. AssociationRequests counts set+20 before any gate, so a type-20
+       request rejected by the length/layout gate still shows up there. LastAssociateLength records the
+       incoming length (0x290 on 27, 0x38C on Tahoe). AssociateLengthMismatch counts every set+20 whose
+       length differs from the ABI's associateSize, including the 27 0x290 layout;
+       GoldenGateAssociateRequests isolates the 0x290 layout. */
+    uint64_t associateLengthMismatch;
+    uint64_t goldenGateAssociateRequests;
+    uint32_t lastAssociateLength;
+    uint32_t lastGoldenGateSample[GoldenGateSampleWords];
+    uint32_t lastGoldenGateBssidCount;
+    uint32_t lastGoldenGateScope;
+    /* 11-17 · the last 16 Set commands: type, header->length and IOReturn. The request history above mixes
+       get/set and is evicted within seconds; this keeps the set path visible across an association attempt. */
+    uint64_t setHistoryCount;
+    uint32_t setHistoryNext;
+    uint32_t setHistory[16];
+    uint32_t setHistoryLength[16];
+    uint32_t setHistoryResult[16];
+    uint32_t lastSetType;
+    uint32_t lastSetLength;
+    uint32_t lastSetResult;
+    /* 11-17 · decisive probe: count every association that reaches the embedded driver's
+       AirPort_BrcmNIC::setASSOCIATE, regardless of whether it came from the SimpleBCM user client or from
+       airportd's legacy ifnet ioctl path (which bypasses the user client). */
+    uint64_t driverAssociateRequests;
+    uint32_t driverAssociateHookReady;
+    uint32_t lastDriverAssociateWord;
+    /* 11-17 · event-9 diagnostics: queueEvent counts before the client filter/ring, so AssociationEvents==0
+       means the driver never posted event 9; the kind split shows whether a future event came from Classic,
+       Virtual or Skywalk. */
+    uint32_t lastAssociationEventKind;
+    uint64_t associationEventsClassic;
+    uint64_t associationEventsVirtual;
+    uint64_t associationEventsSkywalk;
 };
 
 extern Counters counters;
@@ -89,6 +125,7 @@ public:
     static void trackController(IOService *controller);
     static void enableNativeSkywalk();
     static bool ready();
+    static bool goldenGateAssociateEnabled();
     static const UserABI &abi();
     static uint64_t copyAvailability(const Endpoint &endpoint, AvailabilityEvent &event);
     static int refreshAvailability(const Endpoint &endpoint);

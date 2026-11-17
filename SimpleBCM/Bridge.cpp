@@ -33,6 +33,7 @@ Counters counters {};
 static uint32_t state;
 static bool awdlCoexistenceEnabled;
 static bool tahoeDMAEnabled;
+static bool goldenGateAssociateBoot;
 static IOService *observedController;
 static const char *failure = "WaitingForDependencies";
 static IOSimpleLock *contextLock;
@@ -52,6 +53,7 @@ struct PendingEvent {
     IOService *interface;
     uint64_t serial;
     char name[16];
+    InterfaceKind kind;
     uint32_t event;
     uint32_t length;
     uint64_t seconds;
@@ -79,6 +81,7 @@ using Ioctl = int (*)(IOService *, IOService *, IOService *, IOService *, void *
 using Controller = IOService *(*)(IOService *);
 using BSDName = const char *(*)(IOService *);
 using PerformCommand = int (*)(IOService *, IOService *, unsigned long, void *, void *);
+using SetAssociate = int (*)(IOService *, OSObject *, void *);
 
 static NewClient originalClassicClient;
 static NewClient originalVirtualClient;
@@ -94,6 +97,7 @@ static BSDName classicName;
 static BSDName virtualName;
 static BSDName skywalkName;
 static PerformCommand classicCommand;
+static SetAssociate originalSetAssociate;
 static const UserABI *activeABI;
 
 static void reject(const char *reason) {
@@ -104,6 +108,20 @@ static void reject(const char *reason) {
 
 bool Bridge::ready() {
     return __atomic_load_n(&state, __ATOMIC_ACQUIRE) == 7;
+}
+
+bool Bridge::goldenGateAssociateEnabled() {
+    return goldenGateAssociateBoot;
+}
+
+static int countSetAssociate(IOService *self, OSObject *object, void *data) {
+    __atomic_fetch_add(&counters.driverAssociateRequests, 1ULL, __ATOMIC_RELAXED);
+    if (data) {
+        uint32_t word = 0;
+        memcpy(&word, data, sizeof(word));
+        __atomic_store_n(&counters.lastDriverAssociateWord, word, __ATOMIC_RELAXED);
+    }
+    return originalSetAssociate ? originalSetAssociate(self, object, data) : static_cast<int>(0x66);
 }
 
 const UserABI &Bridge::abi() {
@@ -469,6 +487,13 @@ static void queueEvent(IOService *self, InterfaceKind kind, uint32_t message, vo
     if (message == AssociationDoneEvent) {
         __atomic_fetch_add(&counters.associationEvents, 1ULL, __ATOMIC_RELAXED);
         __atomic_store_n(&counters.lastAssociationEventLength, static_cast<uint32_t>(length), __ATOMIC_RELAXED);
+        __atomic_store_n(&counters.lastAssociationEventKind, static_cast<uint32_t>(kind), __ATOMIC_RELAXED);
+        if (kind == InterfaceKind::Classic)
+            __atomic_fetch_add(&counters.associationEventsClassic, 1ULL, __ATOMIC_RELAXED);
+        else if (kind == InterfaceKind::Virtual)
+            __atomic_fetch_add(&counters.associationEventsVirtual, 1ULL, __ATOMIC_RELAXED);
+        else
+            __atomic_fetch_add(&counters.associationEventsSkywalk, 1ULL, __ATOMIC_RELAXED);
     }
     const auto next = (pendingWrite + 1) % PendingCapacity;
     if (next == pendingRead) {
@@ -485,6 +510,7 @@ static void queueEvent(IOService *self, InterfaceKind kind, uint32_t message, vo
     if (entry.interface)
         entry.interface->retain();
     strlcpy(entry.name, endpoint.name, sizeof(entry.name));
+    entry.kind = kind;
     entry.event = message;
     entry.length = outputLength;
     entry.seconds = seconds;
@@ -746,6 +772,19 @@ void Bridge::patchImage(KernelPatcher &patcher, size_t index, mach_vm_address_t 
             reject("AirPortQueryRoutingFailed");
             return;
         }
+        /* 11-17 · decisive association probe: count every association that reaches the embedded
+           driver, including airportd's legacy ifnet ioctl path which bypasses the SimpleBCM user
+           client. Note: routeMultipleLong only patches symbols that have a RoutePrefix descriptor in
+           the generated payload (Tools/profiles.py ROUTE_SYMBOLS["AirPort"]). Until setASSOCIATE is
+           added there and the payload is regenerated, this route fails and HookReady stays 0;
+           the failure is ignored so the bridge remains ready. */
+        KernelPatcher::RouteRequest associateRoute = {
+            "__ZN15AirPort_BrcmNIC12setASSOCIATEEP8OSObjectP21apple80211_assoc_data",
+            countSetAssociate, originalSetAssociate};
+        if (patcher.routeMultipleLong(index, &associateRoute, 1, address, size))
+            __atomic_store_n(&counters.driverAssociateHookReady, 1U, __ATOMIC_RELAXED);
+        else
+            patcher.clearError();
         __atomic_fetch_or(&state, 4U, __ATOMIC_RELEASE);
     }
     if (ready()) {
@@ -758,6 +797,10 @@ void Bridge::initialize() {
     int value = 0;
     awdlCoexistenceEnabled = PE_parse_boot_argn("-sbcmawdlcc", &value, sizeof(value));
     tahoeDMAEnabled = PE_parse_boot_argn("-sbcmdma", &value, sizeof(value));
+    /* 11-17 · opt-in only: 27's 0x290 associate layout still needs a live sample to confirm the
+       4-byte gap. Without this boot arg goldengate requests are counted and rejected without
+       touching the buffer. */
+    goldenGateAssociateBoot = PE_parse_boot_argn("-sbcmggassoc", &value, sizeof(value));
     activeABI = userABIForKernel(static_cast<uint32_t>(getKernelVersion()));
     if (!activeABI) {
         reject("UnsupportedKernel");
@@ -829,6 +872,13 @@ void Bridge::publish(IOService *service) {
         {"Rejects", &counters.rejects},
         {"RejectInterfaceInactive", &counters.rejectInterfaceInactive},
         {"RejectControllerInactive", &counters.rejectControllerInactive},
+        {"AssociateLengthMismatch", &counters.associateLengthMismatch},
+        {"GoldenGateAssociateRequests", &counters.goldenGateAssociateRequests},
+        {"SetCount", &counters.setHistoryCount},
+        {"DriverAssociateRequests", &counters.driverAssociateRequests},
+        {"AssociationEventsClassic", &counters.associationEventsClassic},
+        {"AssociationEventsVirtual", &counters.associationEventsVirtual},
+        {"AssociationEventsSkywalk", &counters.associationEventsSkywalk},
     };
     for (const auto &metric : metrics)
         service->setProperty(metric.name, __atomic_load_n(metric.value, __ATOMIC_RELAXED), 64);
@@ -854,6 +904,29 @@ void Bridge::publish(IOService *service) {
     }
     service->setProperty("LastResult", __atomic_load_n(&counters.lastResult, __ATOMIC_RELAXED), 32);
     service->setProperty("LastAssociationResult", __atomic_load_n(&counters.lastAssociationResult, __ATOMIC_RELAXED), 32);
+    service->setProperty("LastAssociateLength", __atomic_load_n(&counters.lastAssociateLength, __ATOMIC_RELAXED), 32);
+    service->setProperty("LastGoldenGateBssidCount", __atomic_load_n(&counters.lastGoldenGateBssidCount, __ATOMIC_RELAXED), 32);
+    service->setProperty("LastGoldenGateScope", __atomic_load_n(&counters.lastGoldenGateScope, __ATOMIC_RELAXED), 32);
+    for (unsigned i = 0; i < bcm::GoldenGateSampleWords; ++i) {
+        char name[24];
+        snprintf(name, sizeof(name), "GoldenGateWord%u", i);
+        service->setProperty(name, __atomic_load_n(&counters.lastGoldenGateSample[i], __ATOMIC_RELAXED), 32);
+    }
+    service->setProperty("LastSetType", __atomic_load_n(&counters.lastSetType, __ATOMIC_RELAXED), 32);
+    service->setProperty("LastSetLength", __atomic_load_n(&counters.lastSetLength, __ATOMIC_RELAXED), 32);
+    service->setProperty("LastSetResult", __atomic_load_n(&counters.lastSetResult, __ATOMIC_RELAXED), 32);
+    for (unsigned i = 0; i < 16; ++i) {
+        char name[24];
+        snprintf(name, sizeof(name), "SetHist%u", i);
+        service->setProperty(name, __atomic_load_n(&counters.setHistory[i], __ATOMIC_RELAXED), 32);
+        snprintf(name, sizeof(name), "SetLen%u", i);
+        service->setProperty(name, __atomic_load_n(&counters.setHistoryLength[i], __ATOMIC_RELAXED), 32);
+        snprintf(name, sizeof(name), "SetRes%u", i);
+        service->setProperty(name, __atomic_load_n(&counters.setHistoryResult[i], __ATOMIC_RELAXED), 32);
+    }
+    service->setProperty("DriverAssociateHookReady", __atomic_load_n(&counters.driverAssociateHookReady, __ATOMIC_RELAXED), 32);
+    service->setProperty("LastDriverAssociateWord", __atomic_load_n(&counters.lastDriverAssociateWord, __ATOMIC_RELAXED), 32);
+    service->setProperty("LastAssociationEventKind", __atomic_load_n(&counters.lastAssociationEventKind, __ATOMIC_RELAXED), 32);
     service->setProperty("LastAssociationEventLength", __atomic_load_n(&counters.lastAssociationEventLength, __ATOMIC_RELAXED), 32);
     service->setProperty("LastAssociationEventReadResult", __atomic_load_n(&counters.lastAssociationEventReadResult, __ATOMIC_RELAXED), 32);
     service->setProperty("LastAvailabilityReadResult", __atomic_load_n(&counters.lastAvailabilityReadResult, __ATOMIC_RELAXED), 32);

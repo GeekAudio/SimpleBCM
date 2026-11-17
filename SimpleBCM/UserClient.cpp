@@ -285,14 +285,15 @@ IOReturn BCM80211UserClient::runCommand(IOExternalMethodArguments *arguments, si
     const bool capabilities = get && request == bcm::CardCapabilitiesRequest &&
         outputSize == abi.capabilitySize;
     const bool associate = set && request == bcm::AssociateRequest;
+    const bool goldenGateAssociate = associate && abi.kernel == 27 &&
+        header->length == bcm::GoldenGateAssociateSize;
     const bool roamProfiles = request == bcm::RoamProfileRequest && abi.roamProfileSize == bcm::NativeRoamProfileSize;
     bool outputPrepared = false;
     const bool probeRequest = request == 10 || request == 86 || request == 11 ||
         request == 69 || request == 103 || request == 207 || request == 15 ||
-        /* 11-17 · 27's connection flow leaves LastRequest=254 / LastResult=0 on the bridge and then never
-           sends ASSOCIATE(20): the 27 set tables have slot 20 EMPTY and slot 254 populated, so 254 is the
-           likely associate on this Darwin. Print its length and first bytes to tell a 0x8E8 associate buffer
-           from a small leave/scan request. */
+        /* 11-17 · 27 keeps ASSOCIATE at set type 20 (index 19 of its set tables); type 254 is a hole
+           in every set table and only exists as a get (getHW_SUPPORTED_CHANNELS). Keep both in the
+           probe so a stray set 254 is still recorded, but do not treat it as an association. */
         request == 254 || request == 20;
     if (probeRequest) {
         DBGLOG("probe", "%s req=%u cmd=0x%08x len=%u out=%lu hdr=%u data=%02x %02x %02x %02x %02x %02x %02x %02x",
@@ -310,14 +311,29 @@ IOReturn BCM80211UserClient::runCommand(IOExternalMethodArguments *arguments, si
     __atomic_store_n(&bcm::counters.requestHistoryFlags[historySlot],
                      static_cast<uint32_t>(set ? 1u : 0u) | (static_cast<uint32_t>(endpoint.kind) << 8), __ATOMIC_RELAXED);
     __atomic_fetch_add(&bcm::counters.requestHistoryCount, 1ULL, __ATOMIC_RELAXED);
-    if (associate)
+    uint32_t setSlot = 0xFFFFFFFFu;
+    if (set) {
+        setSlot = __atomic_fetch_add(&bcm::counters.setHistoryNext, 1u, __ATOMIC_RELAXED) & 15u;
+        __atomic_store_n(&bcm::counters.setHistory[setSlot], static_cast<uint32_t>(request), __ATOMIC_RELAXED);
+        __atomic_store_n(&bcm::counters.setHistoryLength[setSlot], header->length, __ATOMIC_RELAXED);
+        __atomic_fetch_add(&bcm::counters.setHistoryCount, 1ULL, __ATOMIC_RELAXED);
+        __atomic_store_n(&bcm::counters.lastSetType, static_cast<uint32_t>(request), __ATOMIC_RELAXED);
+        __atomic_store_n(&bcm::counters.lastSetLength, header->length, __ATOMIC_RELAXED);
+    }
+    if (associate) {
         __atomic_fetch_add(&bcm::counters.associationRequests, 1ULL, __ATOMIC_RELAXED);
+        __atomic_store_n(&bcm::counters.lastAssociateLength, header->length, __ATOMIC_RELAXED);
+        if (goldenGateAssociate)
+            __atomic_fetch_add(&bcm::counters.goldenGateAssociateRequests, 1ULL, __ATOMIC_RELAXED);
+        if (header->length != abi.associateSize)
+            __atomic_fetch_add(&bcm::counters.associateLengthMismatch, 1ULL, __ATOMIC_RELAXED);
+    }
     if ((!set && !get) || header->length > capacity ||
         strncmp(legacy.request.interfaceName, endpoint.name, sizeof(endpoint.name)))
         goto done;
     if ((get && request == bcm::ScanResultRequest && !scanResult) ||
         (get && request == bcm::CardCapabilitiesRequest && !capabilities) ||
-        (associate && header->length != abi.associateSize) ||
+        (associate && !goldenGateAssociate && header->length != abi.associateSize) ||
         (set && request == bcm::ScanMultipleRequest && header->length != abi.scanMultipleSize) ||
         (request == bcm::RoamProfileRequest && (get ? outputSize : header->length) != abi.roamProfileSize))
         goto done;
@@ -344,7 +360,23 @@ IOReturn BCM80211UserClient::runCommand(IOExternalMethodArguments *arguments, si
     if (set && request == bcm::ScanMultipleRequest &&
         !bcm::prepareScanMultiple(legacy.request, shadow, capacity, abi))
         goto done;
-    if (associate && !bcm::prepareAssociate(legacy.request, shadow, capacity, abi))
+    if (goldenGateAssociate) {
+        /* Capture before the converter runs: on the default path this is the only record of the
+           0x290 layout, and on the opt-in path it proves which bytes were actually converted. */
+        for (size_t i = 0; i < bcm::GoldenGateSampleWords; ++i)
+            __atomic_store_n(&bcm::counters.lastGoldenGateSample[i],
+                             bcm::readUInt32(shadow + bcm::GoldenGateSampleOffset + i * sizeof(uint32_t)),
+                             __ATOMIC_RELAXED);
+        __atomic_store_n(&bcm::counters.lastGoldenGateBssidCount,
+                         shadow[bcm::GoldenGateAssociateBssidCountOffset], __ATOMIC_RELAXED);
+        __atomic_store_n(&bcm::counters.lastGoldenGateScope,
+                         bcm::readUInt32(shadow + bcm::GoldenGateAssociateScopeOffset), __ATOMIC_RELAXED);
+    }
+    if (associate && goldenGateAssociate &&
+        !bcm::prepareAssociateGoldenGate(legacy.request, shadow, capacity, abi,
+                                         bcm::Bridge::goldenGateAssociateEnabled()))
+        goto done;
+    if (associate && !goldenGateAssociate && !bcm::prepareAssociate(legacy.request, shadow, capacity, abi))
         goto done;
     if (set && abi.filterMonitorEvents && static_cast<uint32_t>(request) == abi.filterMonitorEvents) {
         if (legacy.request.length != sizeof(bcm::EventFilter) || header->length < sizeof(bcm::EventFilter))
@@ -424,6 +456,10 @@ done:
     }
     __atomic_store_n(&bcm::counters.lastResult, static_cast<uint32_t>(result), __ATOMIC_RELAXED);
     __atomic_store_n(&bcm::counters.requestHistoryResult[(historySlot) & 15u], static_cast<uint32_t>(result), __ATOMIC_RELAXED);
+    if (setSlot != 0xFFFFFFFFu) {
+        __atomic_store_n(&bcm::counters.setHistoryResult[setSlot], static_cast<uint32_t>(result), __ATOMIC_RELAXED);
+        __atomic_store_n(&bcm::counters.lastSetResult, static_cast<uint32_t>(result), __ATOMIC_RELAXED);
+    }
     bzero(packet, packetSize);
     IOFree(packet, packetSize);
     return result;

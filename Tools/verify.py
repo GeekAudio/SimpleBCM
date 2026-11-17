@@ -280,9 +280,80 @@ template<bool Sequoia> static void associationVectorFor(const char *nativeHex, c
     ++associationConversions;
 }
 
+static void goldenGateAssociationVector(const char *nativeHex) {
+    /* 11-17 · 27's 0x290 associate layout: normalize the Tahoe 0x38C vector by zeroing the
+       candidate 4-byte gap at 0x1FC, build the candidate 27 buffer by deleting those bytes, and
+       require the converter to reconstruct the normalized native image and its 0x224 legacy form.
+       This proves the gap offset, validation, length gate and truncation; it cannot prove that a
+       real 27 client uses this layout (the gap position is still a hypothesis until a live sample,
+       and conversion stays behind -sbcmggassoc). */
+    uint8_t expectedNative[bcm::GoldenGateNativeAssociateSize];
+    unhex(nativeHex, expectedNative, sizeof(expectedNative));
+    memset(expectedNative + bcm::GoldenGateAssociateGap, 0, bcm::GoldenGateAssociateGapBytes);
+    uint8_t golden[bcm::GoldenGateAssociateSize];
+    memcpy(golden, expectedNative, bcm::GoldenGateAssociateGap);
+    memcpy(golden + bcm::GoldenGateAssociateGap,
+           expectedNative + bcm::GoldenGateAssociateGap + bcm::GoldenGateAssociateGapBytes,
+           bcm::GoldenGateAssociateSize - bcm::GoldenGateAssociateGap);
+    uint8_t expected[bcm::LegacyAssociateSize];
+    bcm::Request reference {};
+    reference.length = bcm::GoldenGateNativeAssociateSize;
+    assert(bcm::prepareAssociate(reference, expectedNative, sizeof(expectedNative), bcm::GoldenGateABI));
+    memcpy(expected, expectedNative, sizeof(expected));
+
+    uint8_t arena[bcm::GoldenGateAssociateSize + 16];
+    memset(arena, 0xA5, sizeof(arena));
+    auto buffer = arena + 8;
+    memcpy(buffer, golden, sizeof(golden));
+    uint8_t original[sizeof(arena)];
+    memcpy(original, arena, sizeof(original));
+    bcm::Request request {};
+    request.length = bcm::GoldenGateAssociateSize;
+    assert(!bcm::prepareAssociateGoldenGate(request, buffer, bcm::GoldenGateAssociateSize - 1,
+                                            bcm::GoldenGateABI, true));
+    assert(!memcmp(arena, original, sizeof(arena)));
+    request.length = bcm::GoldenGateAssociateSize - 1;
+    assert(!bcm::prepareAssociateGoldenGate(request, buffer, sizeof(arena) - 8,
+                                            bcm::GoldenGateABI, true));
+    assert(!memcmp(arena, original, sizeof(arena)));
+    request.length = bcm::GoldenGateAssociateSize;
+    assert(!bcm::prepareAssociateGoldenGate(request, buffer, sizeof(arena) - 8,
+                                            bcm::GoldenGateABI, false));
+    assert(request.length == bcm::GoldenGateAssociateSize);
+    assert(!memcmp(arena, original, sizeof(arena)));
+    assert(bcm::prepareAssociateGoldenGate(request, buffer, sizeof(arena) - 8,
+                                            bcm::GoldenGateABI, true));
+    assert(request.length == bcm::LegacyAssociateSize);
+    assert(!memcmp(buffer, expected, sizeof(expected)));
+    for (size_t offset = bcm::LegacyAssociateSize; offset < bcm::GoldenGateAssociateSize; ++offset)
+        assert(buffer[offset] == 0);
+    for (size_t offset = 0; offset < 8; ++offset)
+        assert(arena[offset] == 0xA5 && buffer[bcm::GoldenGateAssociateSize + offset] == 0xA5);
+    for (size_t field : {size_t(0x10), size_t(0xD0), size_t(0x1D8), size_t(0x202), size_t(0x240)}) {
+        memcpy(buffer, golden, sizeof(golden));
+        request.length = bcm::GoldenGateAssociateSize;
+        if (field == 0x10 || field == 0x1D8)
+            bcm::writeUInt32(buffer + field, 33);
+        else if (field == 0xD0) {
+            buffer[field] = 2;
+            buffer[field + 1] = 1;
+        } else if (field == 0x202)
+            buffer[field] = 4;
+        else
+            bcm::writeUInt32(buffer + field, 38);
+        uint8_t rejected[bcm::GoldenGateAssociateSize];
+        memcpy(rejected, buffer, sizeof(rejected));
+        assert(!bcm::prepareAssociateGoldenGate(request, buffer, sizeof(arena) - 8,
+                                               bcm::GoldenGateABI, true));
+        assert(!memcmp(buffer, rejected, sizeof(rejected)));
+    }
+    ++associationConversions;
+}
+
 static void associationVector(const char *nativeHex, const char *legacyHex) {
     associationVectorFor<false>(nativeHex, legacyHex);
     associationVectorFor<true>(nativeHex, legacyHex);
+    goldenGateAssociationVector(nativeHex);
 }
 
 static void associationVectors() {

@@ -38,6 +38,39 @@ constexpr size_t ScanCompletionCapabilityByte = 5;
 constexpr uint8_t ScanCompletionCapabilityMask = 0x40;
 constexpr uint32_t AssociateRequest = 20;
 constexpr size_t LegacyAssociateSize = 0x224;
+/* 11-17 · macOS 27 still routes ASSOCIATE to set type 20, but its IO80211Family consumes
+   0x290 bytes on both paths (setASSOCIATE @0xffffff8001f8a2f8, legacy setAssociateRequest
+   @0xffffff800205e9fb), where Tahoe used a 0x38C native struct. 27's validated offsets
+   (ssidLength 0x10, rsnLength 0xD0, pmkLength 0x1D8, bssidCount 0x202, scope 0x240) are the
+   Tahoe 0x38C offsets shifted by -4 from the 32-byte PMK block onwards, so the candidate layout
+   restores a 4-byte gap at 0x1FC before reusing prepareAssociate(). The gap position is still a
+   hypothesis until a live 0x290 sample is captured; conversion is therefore opt-in
+   (-sbcmggassoc) and the default path rejects 0x290 without modifying the buffer. */
+constexpr size_t GoldenGateAssociateSize = 0x290;
+constexpr size_t GoldenGateNativeAssociateSize = 0x38C;
+constexpr size_t GoldenGateAssociateGap = 0x1FC;
+constexpr size_t GoldenGateAssociateGapBytes = 4;
+constexpr size_t GoldenGateAssociateSsidLengthOffset = 0x10;
+constexpr size_t GoldenGateAssociateRsnLengthOffset = 0xD0;
+constexpr size_t GoldenGateAssociatePmkLengthOffset = 0x1D8;
+constexpr size_t GoldenGateAssociateBssidCountOffset = 0x202;
+constexpr size_t GoldenGateAssociateScopeOffset = 0x240;
+/* Sample window 0x1D8..0x257 covers pmkLength, the PMK bytes, the candidate gap, bssidCount and
+   the shortened tail; it is the region that distinguishes a 0x1FC gap from the 0x1DC alternative. */
+constexpr size_t GoldenGateSampleOffset = 0x1D8;
+constexpr size_t GoldenGateSampleWords = 32;
+static_assert(GoldenGateAssociateGap < GoldenGateAssociateSize, "GoldenGate gap inside the 27 buffer");
+static_assert(GoldenGateAssociateGap + GoldenGateAssociateGapBytes +
+              (GoldenGateAssociateSize - GoldenGateAssociateGap) <= GoldenGateNativeAssociateSize,
+              "GoldenGate restored buffer fits the Tahoe native size");
+static_assert(GoldenGateSampleOffset + GoldenGateSampleWords * sizeof(uint32_t) <= GoldenGateAssociateSize,
+              "GoldenGate sample window inside the 27 buffer");
+static_assert(GoldenGateAssociateSsidLengthOffset < GoldenGateAssociateSize &&
+              GoldenGateAssociateRsnLengthOffset + sizeof(uint16_t) <= GoldenGateAssociateSize &&
+              GoldenGateAssociatePmkLengthOffset + sizeof(uint32_t) <= GoldenGateAssociateSize &&
+              GoldenGateAssociateBssidCountOffset < GoldenGateAssociateSize &&
+              GoldenGateAssociateScopeOffset + sizeof(uint32_t) <= GoldenGateAssociateSize,
+              "GoldenGate validated offsets inside the 27 buffer");
 constexpr uint32_t RoamProfileRequest = 216;
 constexpr size_t NativeRoamProfileSize = 0x180;
 constexpr size_t NativeRoamBandSize = 0x80;
@@ -86,6 +119,8 @@ constexpr UserABI TahoeABI {25, "Tahoe", 0x8E0, 21, 0x38C, 0x1D4, 0x234,
 constexpr UserABI GoldenGateABI {27, "GoldenGate", 0x8E8, 23, 0x38C, 0x1D4, 0x234,
     NativeScanMultipleSize, NativeRoamProfileSize, NativeDriverAvailableSize, 9,
     AirPortBackend::Tahoe, AssociateLayout::Extended, JoinEventPolicy::Tahoe};
+static_assert(GoldenGateABI.kernel == 27 && GoldenGateABI.associateSize == GoldenGateNativeAssociateSize,
+              "GoldenGate ABI must keep the 27 / 0x38C native associate sizes");
 
 inline const UserABI *userABIForKernel(uint32_t kernel) {
     return kernel == 23 ? &SonomaABI : kernel == 24 ? &SequoiaABI :
@@ -308,6 +343,45 @@ inline bool prepareAssociate(Request &request, uint8_t *buffer, size_t capacity,
     for (size_t offset = 0x218; offset < LegacyAssociateSize; ++offset)
         buffer[offset] = buffer[offset + 0x2C];
     for (size_t offset = LegacyAssociateSize; offset < abi.associateSize; ++offset)
+        buffer[offset] = 0;
+    request.length = LegacyAssociateSize;
+    return true;
+}
+
+/* 27.2's associate buffer is 0x290 bytes. Its validated offsets (ssid 0x10, key 0x3C,
+   rsn 0xD0, pmk 0x1D8, bssidCount 0x202, scope 0x240) differ from Tahoe's 0x38C layout
+   (bssidCount 0x206, scope 0x244) by a 4-byte gap. Until a live sample confirms the gap
+   position, only convert when the caller explicitly enables it (boot-arg -sbcmggassoc);
+   otherwise reject without touching the buffer. */
+inline bool prepareAssociateGoldenGate(Request &request, uint8_t *buffer, size_t capacity,
+                                       const UserABI &abi, bool convert) {
+    if (!buffer || capacity < GoldenGateAssociateSize || request.length != GoldenGateAssociateSize ||
+        abi.kernel != 27 || abi.associateSize != GoldenGateNativeAssociateSize)
+        return false;
+    const auto ssidLength = readUInt32(buffer + GoldenGateAssociateSsidLengthOffset);
+    const auto rsnLength = static_cast<uint16_t>(buffer[GoldenGateAssociateRsnLengthOffset] |
+        (uint16_t(buffer[GoldenGateAssociateRsnLengthOffset + 1]) << 8));
+    const auto pmkLength = readUInt32(buffer + GoldenGateAssociatePmkLengthOffset);
+    const auto bssidCount = buffer[GoldenGateAssociateBssidCountOffset];
+    const auto scope = readUInt32(buffer + GoldenGateAssociateScopeOffset);
+    /* Mirror the 27 legacy handler's own bounds: ssidLength < 33, rsnLength < 258,
+       pmkLength < 33, bssidCount < 11 (legacy only supports 3), scope < 38. */
+    if (ssidLength > 32 || rsnLength > 257 || pmkLength > 32 || bssidCount > 3 || scope >= 38)
+        return false;
+    if (!convert)
+        return false;
+    uint8_t native[GoldenGateNativeAssociateSize] {};
+    for (size_t offset = 0; offset < GoldenGateAssociateGap; ++offset)
+        native[offset] = buffer[offset];
+    for (size_t offset = GoldenGateAssociateGap; offset < GoldenGateAssociateSize; ++offset)
+        native[offset + GoldenGateAssociateGapBytes] = buffer[offset];
+    Request scratch = request;
+    scratch.length = static_cast<uint32_t>(GoldenGateNativeAssociateSize);
+    if (!prepareAssociate(scratch, native, sizeof(native), abi))
+        return false;
+    for (size_t offset = 0; offset < LegacyAssociateSize; ++offset)
+        buffer[offset] = native[offset];
+    for (size_t offset = LegacyAssociateSize; offset < GoldenGateAssociateSize; ++offset)
         buffer[offset] = 0;
     request.length = LegacyAssociateSize;
     return true;
