@@ -623,6 +623,18 @@ int Bridge::command(const Endpoint &endpoint, bool set, LegacyRequest &request, 
     context.next = contexts;
     contexts = &context;
     IOSimpleLockUnlock(contextLock);
+    /* 11-18 · AWDL requests must be visible before anything is changed: payload0's AWDL handlers take the
+       virtual interface from rdx (virtualInterface+0xb0), while Skywalk endpoints pass their object in rcx,
+       so a Skywalk-routed AWDL request can never find a peer manager. Count where they actually arrive. */
+    const auto awdlType = static_cast<uint32_t>(request.request.type);
+    const bool awdl = (awdlType >= 116 && awdlType <= 139) || (awdlType >= 148 && awdlType <= 167) ||
+                      (awdlType >= 201 && awdlType <= 233) || awdlType == 253 || awdlType == 343 ||
+                      awdlType == 416 || awdlType == 417 || awdlType == 432 || awdlType == 467;
+    if (awdl) {
+        __atomic_fetch_add(&counters.awdlRequests, 1ULL, __ATOMIC_RELAXED);
+        __atomic_store_n(&counters.awdlLastType, awdlType, __ATOMIC_RELAXED);
+        __atomic_store_n(&counters.awdlLastKind, static_cast<uint32_t>(endpoint.kind), __ATOMIC_RELAXED);
+    }
     const auto result = endpoint.kind == InterfaceKind::Classic ?
         classicCommand(endpoint.interface, endpoint.controller, set ? SetCommand : GetCommand, nullptr, &request.request) :
         (set ? setRequest : getRequest)(endpoint.controller, nullptr,
@@ -643,6 +655,8 @@ int Bridge::command(const Endpoint &endpoint, bool set, LegacyRequest &request, 
             encodePowerAvailability(static_cast<const uint8_t *>(shadow), PowerDataSize, event, sizeof(event), abi()))
             queueEvent(endpoint.interface, endpoint.kind, DriverAvailableEvent, event, abi().driverAvailableSize, true);
     }
+    if (awdl)
+        __atomic_store_n(&counters.awdlLastResult, static_cast<uint32_t>(result), __ATOMIC_RELAXED);
     return result;
 }
 
@@ -968,6 +982,7 @@ void Bridge::publish(IOService *service) {
         {"ScanRequests", &counters.scanRequests},
         {"ScanMultipleRequests", &counters.scanMultipleRequests},
         {"LastScanRequestLength", &counters.lastScanRequestLength},
+        {"AwdlRequests", &counters.awdlRequests},
         {"ScanResultRequests", &counters.scanResultRequests},
         {"CurrentNetworkRequests", &counters.currentNetworkRequests},
         {"SuperRangeRequests", &counters.superRangeRequests},
