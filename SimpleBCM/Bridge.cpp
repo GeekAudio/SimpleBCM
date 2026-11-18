@@ -1016,6 +1016,9 @@ void Bridge::publish(IOService *service) {
     service->setProperty("Last103OutputSize", __atomic_load_n(&counters.last103OutputSize, __ATOMIC_RELAXED), 32);
     service->setProperty("C103Hits", __atomic_load_n(&counters.c103Hits, __ATOMIC_RELAXED), 32);
     service->setProperty("Legacy103Patched", __atomic_load_n(&counters.legacy103Patched, __ATOMIC_RELAXED), 32);
+    service->setProperty("AwdlLastType", __atomic_load_n(&counters.awdlLastType, __ATOMIC_RELAXED), 32);
+    service->setProperty("AwdlLastKind", __atomic_load_n(&counters.awdlLastKind, __ATOMIC_RELAXED), 32);
+    service->setProperty("AwdlLastResult", __atomic_load_n(&counters.awdlLastResult, __ATOMIC_RELAXED), 32);
     service->setProperty("Legacy103Fallback", __atomic_load_n(&counters.legacy103Fallback, __ATOMIC_RELAXED), 32);
     for (unsigned i = 0; i < 8; ++i) {
         char name[24];
