@@ -623,6 +623,16 @@ int Bridge::command(const Endpoint &endpoint, bool set, LegacyRequest &request, 
     context.next = contexts;
     contexts = &context;
     IOSimpleLockUnlock(contextLock);
+    /* 11-19 · 27 renumbered the AWDL get types: 27's get 207 (the "set Wi-Fi channel" path in airportd at
+       0x100013bb4, issued with a NULL data pointer and an output slot) is 26's get 206 getChannelInfo — the
+       function that itself calls the driver with selector 0xcf=207. 26's get 207 is getAwdlAfTxMode, whose
+       `req->length == 8` guard rejects the 27 request with 22/EINVAL, so no AWDL peer is ever established.
+       Remap the classic get 207 to 206 before dispatch; a set 207 is left untouched. */
+    if (!set && endpoint.kind == InterfaceKind::Classic &&
+        request.request.type == 207u) {
+        __atomic_fetch_add(&counters.awdlRemap207, 1ULL, __ATOMIC_RELAXED);
+        request.request.type = 206u;
+    }
     /* 11-18 · AWDL requests must be visible before anything is changed: payload0's AWDL handlers take the
        virtual interface from rdx (virtualInterface+0xb0), while Skywalk endpoints pass their object in rcx,
        so a Skywalk-routed AWDL request can never find a peer manager. Count where they actually arrive. */
@@ -983,6 +993,7 @@ void Bridge::publish(IOService *service) {
         {"ScanMultipleRequests", &counters.scanMultipleRequests},
         {"LastScanRequestLength", &counters.lastScanRequestLength},
         {"AwdlRequests", &counters.awdlRequests},
+        {"AwdlRemap207", &counters.awdlRemap207},
         {"ScanResultRequests", &counters.scanResultRequests},
         {"CurrentNetworkRequests", &counters.currentNetworkRequests},
         {"SuperRangeRequests", &counters.superRangeRequests},

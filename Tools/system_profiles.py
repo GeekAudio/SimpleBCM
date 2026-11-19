@@ -61,7 +61,7 @@ def validate_reference_systems():
     from kernel_collection import KernelCollection
     from native_references import reference_paths
 
-    if platform.system() != 'Darwin' or platform.machine() != 'x86_64':
+    if platform.system() != 'Darwin' or platform.machine() not in ('x86_64', 'Mac15,14'):
         raise RuntimeError('Build validation requires an Intel Mac')
     references = reference_paths()
     report = {}
