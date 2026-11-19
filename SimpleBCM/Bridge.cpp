@@ -652,14 +652,12 @@ int Bridge::command(const Endpoint &endpoint, bool set, LegacyRequest &request, 
         (set ? setRequest : getRequest)(endpoint.controller, nullptr,
             endpoint.kind == InterfaceKind::Virtual ? endpoint.interface : nullptr,
             endpoint.kind == InterfaceKind::Skywalk ? endpoint.interface : nullptr, &request);
-    /* 11-19 experiment: 27's get 207 (remapped to 26's get 206) reaches the Tahoe driver's
-       getCHANNELS_INFO through selector 0xc03069c9 and returns 102 (0x66) because the 27 request's
-       size does not match 26's channels_info. Sharingd then spins on the AWDL state machine and its
-       Swift-async path crashes. Force that one return to success and count it, so we can tell whether
-       the 102 is what drives the crash loop. This is a diagnostic experiment, not a fix. */
+    /* 11-19 · The forced-success experiment is REVERTED: returning a fake success with EMPTY channel data
+       made airportd take the garbage as real channel state and the AWDL broadcast parameters went wrong —
+       the phone stopped seeing the Mac. The real 102 (0x66) is returned again until the 27 request's
+       length is recorded and the correct 26 handler is chosen. */
     if (awdlRemapped207 && result == 102) {
         __atomic_fetch_add(&counters.awdlRemap207ForcedSuccess, 1ULL, __ATOMIC_RELAXED);
-        result = 0;
     }
     IOSimpleLockLock(contextLock);
     for (auto cursor = &contexts; *cursor; cursor = &(*cursor)->next) {
