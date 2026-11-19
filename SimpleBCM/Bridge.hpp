@@ -122,6 +122,7 @@ struct Counters {
     uint32_t awdlLastKind;
     uint32_t awdlLastResult;
     uint64_t awdlRemap207;
+    uint64_t awdlRemap207ForcedSuccess;
     uint32_t scanTailSnapshot[8];
     uint32_t lastAssociateLength;
     uint32_t lastGoldenGateSample[GoldenGateSampleWords];

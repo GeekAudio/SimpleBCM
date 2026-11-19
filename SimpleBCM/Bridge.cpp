@@ -628,10 +628,12 @@ int Bridge::command(const Endpoint &endpoint, bool set, LegacyRequest &request, 
        function that itself calls the driver with selector 0xcf=207. 26's get 207 is getAwdlAfTxMode, whose
        `req->length == 8` guard rejects the 27 request with 22/EINVAL, so no AWDL peer is ever established.
        Remap the classic get 207 to 206 before dispatch; a set 207 is left untouched. */
+    bool awdlRemapped207 = false;
     if (!set && endpoint.kind == InterfaceKind::Classic &&
         request.request.type == 207u) {
         __atomic_fetch_add(&counters.awdlRemap207, 1ULL, __ATOMIC_RELAXED);
         request.request.type = 206u;
+        awdlRemapped207 = true;
     }
     /* 11-18 · AWDL requests must be visible before anything is changed: payload0's AWDL handlers take the
        virtual interface from rdx (virtualInterface+0xb0), while Skywalk endpoints pass their object in rcx,
@@ -645,11 +647,20 @@ int Bridge::command(const Endpoint &endpoint, bool set, LegacyRequest &request, 
         __atomic_store_n(&counters.awdlLastType, awdlType, __ATOMIC_RELAXED);
         __atomic_store_n(&counters.awdlLastKind, static_cast<uint32_t>(endpoint.kind), __ATOMIC_RELAXED);
     }
-    const auto result = endpoint.kind == InterfaceKind::Classic ?
+    auto result = endpoint.kind == InterfaceKind::Classic ?
         classicCommand(endpoint.interface, endpoint.controller, set ? SetCommand : GetCommand, nullptr, &request.request) :
         (set ? setRequest : getRequest)(endpoint.controller, nullptr,
             endpoint.kind == InterfaceKind::Virtual ? endpoint.interface : nullptr,
             endpoint.kind == InterfaceKind::Skywalk ? endpoint.interface : nullptr, &request);
+    /* 11-19 experiment: 27's get 207 (remapped to 26's get 206) reaches the Tahoe driver's
+       getCHANNELS_INFO through selector 0xc03069c9 and returns 102 (0x66) because the 27 request's
+       size does not match 26's channels_info. Sharingd then spins on the AWDL state machine and its
+       Swift-async path crashes. Force that one return to success and count it, so we can tell whether
+       the 102 is what drives the crash loop. This is a diagnostic experiment, not a fix. */
+    if (awdlRemapped207 && result == 102) {
+        __atomic_fetch_add(&counters.awdlRemap207ForcedSuccess, 1ULL, __ATOMIC_RELAXED);
+        result = 0;
+    }
     IOSimpleLockLock(contextLock);
     for (auto cursor = &contexts; *cursor; cursor = &(*cursor)->next) {
         if (*cursor == &context) {
@@ -994,6 +1005,7 @@ void Bridge::publish(IOService *service) {
         {"LastScanRequestLength", &counters.lastScanRequestLength},
         {"AwdlRequests", &counters.awdlRequests},
         {"AwdlRemap207", &counters.awdlRemap207},
+        {"AwdlRemap207ForcedSuccess", &counters.awdlRemap207ForcedSuccess},
         {"ScanResultRequests", &counters.scanResultRequests},
         {"CurrentNetworkRequests", &counters.currentNetworkRequests},
         {"SuperRangeRequests", &counters.superRangeRequests},
